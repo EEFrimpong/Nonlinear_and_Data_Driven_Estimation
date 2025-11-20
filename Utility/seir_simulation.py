@@ -208,7 +208,7 @@ def simulate_seir_rk4_mpc(f_obj, h_obj, tsim_length=365, dt=1.0,
         horizon_steps = 1
 
     if x0 is None:
-        x = np.array([N - 1000.0, 500.0, 500.0, 0.0], dtype=float)
+        x = np.array([N - 1000.0, 500.0, 500.0, 0.0, 0.0], dtype=float)
     else:
         x = x0.astype(float).copy()
 
@@ -268,7 +268,7 @@ def simulate_seir_rk4_mpc(f_obj, h_obj, tsim_length=365, dt=1.0,
 # --------------------------
 def main():
     # initial conditions (absolute)
-    x0 = np.array([999500.0, 400.0, 100.0, 0.0], dtype=float)
+    x0 = np.array([999500.0, 400.0, 100.0, 0.0, 0.0], dtype=float)
 
     f_obj = F()
     measurement_options = [
