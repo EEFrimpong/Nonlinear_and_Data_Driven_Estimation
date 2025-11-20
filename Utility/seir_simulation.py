@@ -83,7 +83,7 @@ class H(object):
 
     def h_all(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
-            return ['S_absolute', 'E_absolute', 'I_absolute', 'R_absolute']
+            return ['S_absolute', 'E_absolute', 'I_absolute', 'R_absolute', 'B_absolute']
         return x_vec.copy().astype(float)
 
 # --------------------------
