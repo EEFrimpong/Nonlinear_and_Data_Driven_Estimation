@@ -45,7 +45,7 @@ class F(object):
 
         u1 = float(u_vec[0])  # transmission reduction (0..1)
         u2 = float(u_vec[1])  # vaccination rate (0..1 fraction per day)
-        u3 = 0.0#float(u_vec[2])  # increased recovery/treatment rate (0..1 adds to gamma)
+        u3 = float(u_vec[2])  # increased recovery/treatment rate (0..1 adds to gamma)
 
         # SEIR dynamics (absolute counts)
         dS_dt = mu * N - beta * (1 - u1) * S * I / N - u2 * S - mu * S
