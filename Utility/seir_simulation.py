@@ -259,7 +259,7 @@ def simulate_seir_rk4_mpc(f_obj, h_obj, tsim_length=365, dt=1.0,
     y_log = np.vstack(y_log) if len(y_log) > 0 else np.zeros((n_steps, 0))
 
     # return t_sim, x_log dict, u_log, y_log
-    x_dict = {'S': x_log[:,0], 'E': x_log[:,1], 'I': x_log[:,2], 'R': x_log[:,3]}
+    x_dict = {'S': x_log[:,0], 'E': x_log[:,1], 'I': x_log[:,2], 'R': x_log[:,3], 'B': x_log[:,4]}
     return t_sim, x_dict, u_log, y_log
 
 # --------------------------
