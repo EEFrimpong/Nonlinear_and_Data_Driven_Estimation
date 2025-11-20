@@ -51,8 +51,8 @@ class F(object):
         dE_dt = beta * (1 - u1) * S * I / N - sigma * E - mu * E
         dI_dt = sigma * E - (gamma + u3) * I - mu * I
         dR_dt = (gamma + u3) * I + u2 * S - mu * R
-        dB_dt= 0.0
-        return np.array([dS_dt, dE_dt, dI_dt, dR_dt,dB_dt], dtype=float)
+        dB_dt = 0.0
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dB_dt], dtype=float)
 
 # --------------------------
 # Measurement class H
@@ -111,7 +111,7 @@ def rollout_cost_and_trajectory(x0, u_sequence, f_func, dt, horizon_steps,
     """
     Simulate forward for horizon_steps using piecewise-constant controls from u_sequence.
     u_sequence is flat array of length 3*horizon_steps: [u1_0,u2_0,u3_0, u1_1,...]
-    Returns (cost, traj_states (horizon_steps+1 x 4))
+    Returns (cost, traj_states (horizon_steps+1 x 5))
     """
     u_seq = u_sequence.reshape((horizon_steps, 3))
     x = x0.copy()
@@ -216,8 +216,8 @@ def simulate_seir_rk4_mpc(f_obj, h_obj, tsim_length=365, dt=1.0,
     t_sim = np.arange(0.0, tsim_length + dt/2.0, dt)
     n_steps = len(t_sim)
 
-    # logs
-    x_log = np.zeros((n_steps, 4))
+    # logs - FIXED: Changed from 4 to 5
+    x_log = np.zeros((n_steps, 5))
     u_log = np.zeros((n_steps, 3))
     y_log = []
 
@@ -259,8 +259,8 @@ def simulate_seir_rk4_mpc(f_obj, h_obj, tsim_length=365, dt=1.0,
 
     y_log = np.vstack(y_log) if len(y_log) > 0 else np.zeros((n_steps, 0))
 
-    # return t_sim, x_log dict, u_log, y_log
-    x_dict = {'S': x_log[:,0], 'E': x_log[:,1], 'I': x_log[:,2], 'R': x_log[:,3]}
+    # return t_sim, x_log dict, u_log, y_log - FIXED: Added B
+    x_dict = {'S': x_log[:,0], 'E': x_log[:,1], 'I': x_log[:,2], 'R': x_log[:,3], 'B': x_log[:,4]}
     return t_sim, x_dict, u_log, y_log
 
 # --------------------------
@@ -275,7 +275,7 @@ def main():
         ('h_ir', 'Primary: I + R'),
         ('h_i', 'I only'),
         ('h_ei', 'E + I'),
-        ('h_all', 'S + E + I + R'),
+        ('h_all', 'S + E + I + R + B'),
     ]
 
     results = {}
@@ -291,7 +291,7 @@ def main():
             )
             results[option_name] = {'t':t_sim, 'x':x_sim, 'u':u_sim, 'y':y_sim}
             print("Simulation successful.")
-            print(f"Final states: S={x_sim['S'][-1]:.0f}, E={x_sim['E'][-1]:.0f}, I={x_sim['I'][-1]:.0f}, R={x_sim['R'][-1]:.0f}")
+            print(f"Final states: S={x_sim['S'][-1]:.0f}, E={x_sim['E'][-1]:.0f}, I={x_sim['I'][-1]:.0f}, R={x_sim['R'][-1]:.0f}, B={x_sim['B'][-1]:.0f}")
         except Exception as e:
             print("Simulation failed:", e)
 
