@@ -304,6 +304,7 @@ def main():
         plt.plot(t, x['E'], label='E')
         plt.plot(t, x['I'], label='I')
         plt.plot(t, x['R'], label='R')
+        plt.plot(t, x['B'], label='B')
         plt.xlabel('Time (days)')
         plt.ylabel('Population')
         plt.title('SEIR with RK4 + simple MPC (h_all)')
