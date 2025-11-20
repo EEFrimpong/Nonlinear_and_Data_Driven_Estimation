@@ -29,17 +29,18 @@ class F(object):
         """
         Continuous time dynamics function for SEIR model.
 
-        x_vec : [S, E, I, R]
+        x_vec : [S, E, I, R, B]
         u_vec : [u1, u2, u3]
-        return_state_names : if True -> return ['S','E','I','R']
+        return_state_names : if True -> return ['S','E','I','R','B']
         """
         if return_state_names:
-            return ['S', 'E', 'I', 'R']
+            return ['S', 'E', 'I', 'R', 'B']
 
         S = x_vec[0]
         E = x_vec[1]
         I = x_vec[2]
         R = x_vec[3]
+        B = x_vec[4]
 
         u1 = float(u_vec[0])  # transmission reduction (0..1)
         u2 = float(u_vec[1])  # vaccination rate (0..1 fraction per day)
@@ -50,8 +51,8 @@ class F(object):
         dE_dt = beta * (1 - u1) * S * I / N - sigma * E - mu * E
         dI_dt = sigma * E - (gamma + u3) * I - mu * I
         dR_dt = (gamma + u3) * I + u2 * S - mu * R
-
-        return np.array([dS_dt, dE_dt, dI_dt, dR_dt], dtype=float)
+        dB_dt= 0.0
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt,dB_dt], dtype=float)
 
 # --------------------------
 # Measurement class H
