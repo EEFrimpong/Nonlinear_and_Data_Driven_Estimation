@@ -51,7 +51,7 @@ class F(object):
         dE_dt = beta * (1 - u1) * S * I / N - sigma * E - mu * E
         dI_dt = sigma * E - (gamma + u3) * I - mu * I
         dR_dt = (gamma + u3) * I + u2 * S - mu * R
-        dB_dt=  dB_dt = (gamma + u3) * I
+        dB_dt=  0
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt,dB_dt], dtype=float)
 
 # --------------------------
