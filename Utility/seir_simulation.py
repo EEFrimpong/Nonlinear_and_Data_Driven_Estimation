@@ -19,41 +19,30 @@ N = 10_000_000        # Total population (absolute counts)
 
 # --------------------------
 # Dynamics class F
-# --------------------------
+
 class F(object):
     def __init__(self):
         pass
 
-    
-    def f(self, x_vec, u_vec, mu=mu, beta=beta, sigma=sigma, gamma=gamma, N=N,
+    def f(self, x_vec, u_vec, mu=0.0000014, beta=0.5, sigma=0.2, gamma=0.4, N=1_000_000,
           return_state_names=False):
-        """
-        Continuous time dynamics function for SEIR model.
-
-        x_vec : [S, E, I, R, B]
-        u_vec : [u1, u2, u3]
-        return_state_names : if True -> return ['S','E','I','R','B']
+        """SEIR dynamics with 5 states: [S, E, I, R, B]
+        
+        Modified for closed population (no births) so S can reach zero.
         """
         if return_state_names:
             return ['S', 'E', 'I', 'R', 'B']
 
-        S = x_vec[0]
-        E = x_vec[1]
-        I = x_vec[2]
-        R = x_vec[3]
-        B = x_vec[4]
+        S, E, I, R, B = x_vec[0], x_vec[1], x_vec[2], x_vec[3], x_vec[4]
+        u1, u2, u3 = float(u_vec[0]), float(u_vec[1]), float(u_vec[2])
 
-        u1 = float(u_vec[0])  # transmission reduction (0..1)
-        u2 = float(u_vec[1])  # vaccination rate (0..1 fraction per day)
-        u3 = float(u_vec[2])  # increased recovery/treatment rate (0..1 adds to gamma)
-
-        # SEIR dynamics (absolute counts)
-        dS_dt = mu * N - beta * (1 - u1) * S * I / N - u2 * S - mu * S
+        # FIXED: Removed mu * N term (no births in closed population)
+        dS_dt = - beta * (1 - u1) * S * I / N - u2 * S - mu * S
         dE_dt = beta * (1 - u1) * S * I / N - sigma * E - mu * E
         dI_dt = sigma * E - (gamma + u3) * I - mu * I
         dR_dt = (gamma + u3) * I + u2 * S - mu * R
-        dB_dt = 0.0  # FIXED: Changed from 0 to 0.0 for type consistency
-        
+        dB_dt = 0.0  # Not used in current model
+
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dB_dt], dtype=float)
 
 # --------------------------
