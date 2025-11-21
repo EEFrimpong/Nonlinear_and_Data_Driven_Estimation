@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-seir_simulation_fixed.py - SEIR Model with RK4 & fixed controls
+seir_simulation_fixed_subplot.py - SEIR Model with RK4 & fixed controls
+All measurement options plotted together
 """
 
 import numpy as np
@@ -9,30 +10,26 @@ import matplotlib.pyplot as plt
 # --------------------------
 # Model parameters
 # --------------------------
-mu = 0.000014        # Birth/Death rate per day
-beta = 0.5           # Transmission rate
-sigma = 0.2          # Incubation rate
-gamma = 0.1          # Recovery rate
-N = 10_000_000       # Total population
+mu = 0.000014
+beta = 0.5
+sigma = 0.2
+gamma = 0.1
+N = 10_000_000
 
 # --------------------------
 # Dynamics class F
 # --------------------------
 class F(object):
     def f(self, x_vec, u_vec, return_state_names=False):
-        """SEIR dynamics with 5 states: [S, E, I, R, B]"""
         if return_state_names:
             return ['S', 'E', 'I', 'R', 'B']
-
         S, E, I, R, B = x_vec
         u1, u2, u3 = float(u_vec[0]), float(u_vec[1]), float(u_vec[2])
-
         dS_dt = mu*N - beta*(1-u1)*S*I/N - u2*S - mu*S
         dE_dt = beta*(1-u1)*S*I/N - sigma*E - mu*E
         dI_dt = sigma*E - (gamma + u3)*I - mu*I
         dR_dt = (gamma + u3)*I + u2*S - mu*R
-        dB_dt = 0.0  # B state remains constant
-
+        dB_dt = 0.0
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dB_dt], dtype=float)
 
 # --------------------------
@@ -72,35 +69,32 @@ class H(object):
 # --------------------------
 def rk4_step(f_func, x, u, dt):
     k1 = f_func(x, u)
-    k2 = f_func(x + 0.5 * dt * k1, u)
-    k3 = f_func(x + 0.5 * dt * k2, u)
-    k4 = f_func(x + dt * k3, u)
-    return x + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
+    k2 = f_func(x + 0.5*dt*k1, u)
+    k3 = f_func(x + 0.5*dt*k2, u)
+    k4 = f_func(x + dt*k3, u)
+    return x + (dt/6.0)*(k1 + 2*k2 + 2*k3 + k4)
 
 # --------------------------
 # Simulation function
 # --------------------------
 def simulate_seir(f_obj, h_obj, tsim_length=365, dt=1.0, x0=None):
     if x0 is None:
-        x = np.array([N - 5000.0, 1000.0, 900.0, 0.0, 0.0], dtype=float)
+        x = np.array([N - 5000, 1000, 900, 0, 0], dtype=float)
     else:
         x = x0.astype(float).copy()
 
-    t_sim = np.arange(0.0, tsim_length + dt/2.0, dt)
+    t_sim = np.arange(0, tsim_length+dt/2.0, dt)
     n_steps = len(t_sim)
-
     x_log = np.zeros((n_steps, 5))
     u_log = np.zeros((n_steps, 3))
     y_log = []
 
-    # Fixed controls: u1=0.2, u2=u3=0
     u_fixed = np.array([0.2, 0.0, 0.0])
 
     for k in range(n_steps):
         x = rk4_step(f_obj.f, x, u_fixed, dt)
-        x = np.maximum(x, 0.0)  # Ensure no negative populations
+        x = np.maximum(x, 0.0)
         y = h_obj.h(x, u_fixed)
-
         x_log[k, :] = x
         u_log[k, :] = u_fixed
         y_log.append(y)
@@ -119,48 +113,41 @@ def main():
         ('h_ir', 'Primary: I + R'),
         ('h_i', 'I only'),
         ('h_ei', 'E + I'),
-        ('h_all', 'S + E + I + R + B'),
+        ('h_all', 'S + E + I + R + B')
     ]
 
     results = {}
-    for option_name, desc in measurement_options:
-        print("\n" + "="*60)
-        print(f"Running simulation - measurement: {desc}")
-        print("="*60)
+    plt.figure(figsize=(16, 12))
+    for i, (option_name, desc) in enumerate(measurement_options, 1):
         h_obj = H(measurement_option=option_name)
         t_sim, x_sim, u_sim, y_sim = simulate_seir(f_obj, h_obj, tsim_length=365, dt=1.0, x0=x0)
         results[option_name] = {'t': t_sim, 'x': x_sim, 'u': u_sim, 'y': y_sim}
-        print("Simulation complete.")
-        print(f"Final states: S={x_sim['S'][-1]:.0f}, E={x_sim['E'][-1]:.0f}, "
-              f"I={x_sim['I'][-1]:.0f}, R={x_sim['R'][-1]:.0f}, B={x_sim['B'][-1]:.0f}")
 
-        # Plot measured states
-        plt.figure(figsize=(10,4))
-        for i, name in enumerate(h_obj.h(x0, np.zeros(3), return_measurement_names=True)):
-            plt.plot(t_sim, y_sim[:,i], label=name)
-        plt.xlabel('Time (days)')
-        plt.ylabel('Population')
-        plt.title(f'Measurements: {desc}')
-        plt.legend()
-        plt.grid()
-        plt.show()
+        ax = plt.subplot(2, 2, i)
+        meas_names = h_obj.h(x0, np.zeros(3), return_measurement_names=True)
+        for j, name in enumerate(meas_names):
+            ax.plot(t_sim, y_sim[:,j], label=name)
+        ax.set_title(f'Measurements: {desc}')
+        ax.set_xlabel('Time (days)')
+        ax.set_ylabel('Population')
+        ax.legend()
+        ax.grid(True)
+
+    plt.tight_layout()
+    plt.show()
 
     # Plot all states
-    if 'h_all' in results:
-        t = results['h_all']['t']
-        x = results['h_all']['x']
-        plt.figure(figsize=(12,6))
-        plt.plot(t, x['S'], label='S')
-        plt.plot(t, x['E'], label='E')
-        plt.plot(t, x['I'], label='I')
-        plt.plot(t, x['R'], label='R')
-        plt.plot(t, x['B'], label='B')
-        plt.xlabel('Time (days)')
-        plt.ylabel('Population')
-        plt.title('SEIR with RK4 + Fixed Controls (u1=0.2, u2=u3=0)')
-        plt.legend()
-        plt.grid()
-        plt.show()
+    t = results['h_all']['t']
+    x = results['h_all']['x']
+    plt.figure(figsize=(12,6))
+    for state in ['S','E','I','R','B']:
+        plt.plot(t, x[state], label=state)
+    plt.xlabel('Time (days)')
+    plt.ylabel('Population')
+    plt.title('SEIR with RK4 + Fixed Controls (u1=0.2, u2=u3=0)')
+    plt.legend()
+    plt.grid()
+    plt.show()
 
     return results
 
