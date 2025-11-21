@@ -15,7 +15,7 @@ mu = 0.000014        # Birth/Death rate per day (approximate)
 beta = 0.5           # Transmission rate (constant here)
 sigma = 0.2          # Incubation rate (1/sigma = incubation period)
 gamma = 0.1          # Recovery rate (1/gamma = infectious period)
-N = 1_000_000        # Total population (absolute counts)
+N = 10_000_000        # Total population (absolute counts)
 
 # --------------------------
 # Dynamics class F
@@ -210,7 +210,7 @@ def simulate_seir_rk4_mpc(f_obj, h_obj, tsim_length=365, dt=1.0,
         horizon_steps = 1
 
     if x0 is None:
-        x = np.array([N - 1000.0, 500.0, 500.0, 0.0, 0.0], dtype=float)
+        x = np.array([N - 5000.0, 1000.0, 900.0, 0.0, 0.0], dtype=float)
     else:
         x = x0.astype(float).copy()
 
@@ -229,7 +229,7 @@ def simulate_seir_rk4_mpc(f_obj, h_obj, tsim_length=365, dt=1.0,
 
     # define simple target tvp (can be made time-varying)
     # For simplicity use constant target over horizon equal to small fraction of N
-    I_set_const = 0.001 * N
+    I_set_const = 0.002 * N
     E_set_const = 0.001 * N
 
     for k in range(n_steps):
