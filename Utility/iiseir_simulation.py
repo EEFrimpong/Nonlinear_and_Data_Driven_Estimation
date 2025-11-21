@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-seir_simulation.py - SEIR Model with RK4 & simple MPC controller (no pybounds)
-UPDATED: added birth rates, S can go to 0, B state included
+seir_simulation_fixed.py - SEIR Model with RK4 & fixed controls
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize
 
 # --------------------------
-# Model parameters (tweak)
+# Model parameters
 # --------------------------
 mu = 0.000014        # Birth/Death rate per day
 beta = 0.5           # Transmission rate
@@ -21,19 +19,14 @@ N = 10_000_000       # Total population
 # Dynamics class F
 # --------------------------
 class F(object):
-    def __init__(self):
-        pass
-
     def f(self, x_vec, u_vec, return_state_names=False):
         """SEIR dynamics with 5 states: [S, E, I, R, B]"""
         if return_state_names:
             return ['S', 'E', 'I', 'R', 'B']
 
-        # unpack
         S, E, I, R, B = x_vec
         u1, u2, u3 = float(u_vec[0]), float(u_vec[1]), float(u_vec[2])
 
-        # SEIR equations with births and S→0 control via u2
         dS_dt = mu*N - beta*(1-u1)*S*I/N - u2*S - mu*S
         dE_dt = beta*(1-u1)*S*I/N - sigma*E - mu*E
         dI_dt = sigma*E - (gamma + u3)*I - mu*I
@@ -82,28 +75,12 @@ def rk4_step(f_func, x, u, dt):
     k2 = f_func(x + 0.5 * dt * k1, u)
     k3 = f_func(x + 0.5 * dt * k2, u)
     k4 = f_func(x + dt * k3, u)
-    x_next = x + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
-    return x_next
+    return x + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
 
 # --------------------------
-# MPC helper and solver remain unchanged (rollout_cost_and_trajectory, solve_mpc)
-# ... (use your previous code)
+# Simulation function
 # --------------------------
-
-# --------------------------
-# High-level simulator that uses RK4 + MPC
-# --------------------------
-def simulate_seir_rk4_mpc(f_obj, h_obj, tsim_length=365, dt=1.0,
-                          x0=None, mpc_horizon_days=14, mpc_dt=None,
-                          rterm_u=(1e-3,1e-3,1e-3)):
-
-    if mpc_dt is None:
-        mpc_dt = dt
-
-    horizon_steps = int(np.round(mpc_horizon_days / mpc_dt))
-    if horizon_steps < 1:
-        horizon_steps = 1
-
+def simulate_seir(f_obj, h_obj, tsim_length=365, dt=1.0, x0=None):
     if x0 is None:
         x = np.array([N - 5000.0, 1000.0, 900.0, 0.0, 0.0], dtype=float)
     else:
@@ -116,43 +93,24 @@ def simulate_seir_rk4_mpc(f_obj, h_obj, tsim_length=365, dt=1.0,
     u_log = np.zeros((n_steps, 3))
     y_log = []
 
-    def f_func(x_vec, u_vec):
-        return f_obj.f(x_vec, u_vec)
-
-    I_set_const = 0.002 * N
-    E_set_const = 0.001 * N
+    # Fixed controls: u1=0.2, u2=u3=0
+    u_fixed = np.array([0.2, 0.0, 0.0])
 
     for k in range(n_steps):
-        # Solve MPC at current state
-        u_first, u_full = solve_mpc(
-            x0=x.copy(),
-            f_func=f_func,
-            dt=dt,
-            horizon_steps=horizon_steps,
-            u_bounds=((0.0,1.0),(0.0,1.0),(0.0,1.0)),
-            rterm=rterm_u,
-            initial_guess=None,
-            tvp_I_set=np.ones(horizon_steps)*I_set_const,
-            tvp_E_set=np.ones(horizon_steps)*E_set_const
-        )
-
-        # Apply first control
-        x = rk4_step(f_func, x, u_first, dt)
-        x = np.maximum(x, 0.0)
-
-        # Measurement
-        y = h_obj.h(x, u_first)
+        x = rk4_step(f_obj.f, x, u_fixed, dt)
+        x = np.maximum(x, 0.0)  # Ensure no negative populations
+        y = h_obj.h(x, u_fixed)
 
         x_log[k, :] = x
-        u_log[k, :] = u_first
+        u_log[k, :] = u_fixed
         y_log.append(y)
 
-    y_log = np.vstack(y_log) if len(y_log) > 0 else np.zeros((n_steps, 0))
+    y_log = np.vstack(y_log)
     x_dict = {'S': x_log[:,0], 'E': x_log[:,1], 'I': x_log[:,2], 'R': x_log[:,3], 'B': x_log[:,4]}
     return t_sim, x_dict, u_log, y_log
 
 # --------------------------
-# Example main routine
+# Main routine
 # --------------------------
 def main():
     x0 = np.array([999500.0, 400.0, 100.0, 0.0, 0.0], dtype=float)
@@ -170,16 +128,24 @@ def main():
         print(f"Running simulation - measurement: {desc}")
         print("="*60)
         h_obj = H(measurement_option=option_name)
-        t_sim, x_sim, u_sim, y_sim = simulate_seir_rk4_mpc(
-            f_obj, h_obj, tsim_length=365, dt=1.0,
-            x0=x0, mpc_horizon_days=14, rterm_u=(1e-3,1e-3,1e-3)
-        )
-        results[option_name] = {'t':t_sim, 'x':x_sim, 'u':u_sim, 'y':y_sim}
+        t_sim, x_sim, u_sim, y_sim = simulate_seir(f_obj, h_obj, tsim_length=365, dt=1.0, x0=x0)
+        results[option_name] = {'t': t_sim, 'x': x_sim, 'u': u_sim, 'y': y_sim}
         print("Simulation complete.")
         print(f"Final states: S={x_sim['S'][-1]:.0f}, E={x_sim['E'][-1]:.0f}, "
               f"I={x_sim['I'][-1]:.0f}, R={x_sim['R'][-1]:.0f}, B={x_sim['B'][-1]:.0f}")
 
-    # Plot last simulation (h_all)
+        # Plot measured states
+        plt.figure(figsize=(10,4))
+        for i, name in enumerate(h_obj.h(x0, np.zeros(3), return_measurement_names=True)):
+            plt.plot(t_sim, y_sim[:,i], label=name)
+        plt.xlabel('Time (days)')
+        plt.ylabel('Population')
+        plt.title(f'Measurements: {desc}')
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+    # Plot all states
     if 'h_all' in results:
         t = results['h_all']['t']
         x = results['h_all']['x']
@@ -191,12 +157,13 @@ def main():
         plt.plot(t, x['B'], label='B')
         plt.xlabel('Time (days)')
         plt.ylabel('Population')
-        plt.title('SEIR with RK4 + MPC (births + B state + S→0)')
+        plt.title('SEIR with RK4 + Fixed Controls (u1=0.2, u2=u3=0)')
         plt.legend()
         plt.grid()
         plt.show()
 
     return results
 
+# --------------------------
 if __name__ == "__main__":
     main()
