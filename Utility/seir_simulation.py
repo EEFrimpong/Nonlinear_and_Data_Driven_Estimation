@@ -37,7 +37,7 @@ class F(object):
         u1, u2, u3 = float(u_vec[0]), float(u_vec[1]), float(u_vec[2])
 
         # FIXED: Removed mu * N term (no births in closed population)
-        dS_dt = - beta * (1 - u1) * S * I / N - u2 * S - mu * S
+        dS_dt = mu*N - beta * (1 - u1) * S * I / N - u2 * S - mu * S
         dE_dt = beta * (1 - u1) * S * I / N - sigma * E - mu * E
         dI_dt = sigma * E - (gamma + u3) * I - mu * I
         dR_dt = (gamma + u3) * I + u2 * S - mu * R
