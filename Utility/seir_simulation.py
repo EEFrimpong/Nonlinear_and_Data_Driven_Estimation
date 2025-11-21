@@ -73,6 +73,12 @@ class H(object):
         I = x_vec[2]; R = x_vec[3]
         return np.array([I, R], dtype=float)
 
+    def h_irb(self, x_vec, u_vec, return_measurement_names=False):
+        if return_measurement_names:
+            return ['I_absolute', 'R_absolute', 'B_absolute']
+        I = x_vec[2]; R = x_vec[3]; B = x_vec[4]
+        return np.array([I, R, B], dtype=float)
+
     def h_i(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
             return ['I_absolute']
