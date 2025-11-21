@@ -2,16 +2,17 @@
 """
 seir_simulation_fixed_subplot.py - SEIR Model with RK4 & fixed controls
 All measurement options plotted together
+MODIFIED TO DECREASE S COMPARTMENT TO ~2000
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 # --------------------------
-# Model parameters
+# Model parameters - MODIFIED
 # --------------------------
 mu = 0.000014
-beta = 0.5
+beta = 0.8  # INCREASED from 0.5 to 0.8 for higher transmission
 sigma = 0.2
 gamma = 0.1
 N = 10_000_000
@@ -89,7 +90,8 @@ def simulate_seir(f_obj, h_obj, tsim_length=365, dt=1.0, x0=None):
     u_log = np.zeros((n_steps, 3))
     y_log = []
 
-    u_fixed = np.array([0.2, 0.0, 0.0])
+    # MODIFIED: Increased u2 to 0.008 for vaccination, set u1=0 for no social distancing
+    u_fixed = np.array([0.0, 0.008, 0.0])
 
     for k in range(n_steps):
         x = rk4_step(f_obj.f, x, u_fixed, dt)
@@ -107,7 +109,8 @@ def simulate_seir(f_obj, h_obj, tsim_length=365, dt=1.0, x0=None):
 # Main routine
 # --------------------------
 def main():
-    x0 = np.array([999500.0, 400.0, 100.0, 0.0, 0.0], dtype=float)
+    # MODIFIED: More initial infected to accelerate epidemic
+    x0 = np.array([999500.0, 400.0, 5000.0, 0.0, 0.0], dtype=float)
     f_obj = F()
     measurement_options = [
         ('h_ir', 'Primary: I + R'),
@@ -120,7 +123,8 @@ def main():
     plt.figure(figsize=(16, 12))
     for i, (option_name, desc) in enumerate(measurement_options, 1):
         h_obj = H(measurement_option=option_name)
-        t_sim, x_sim, u_sim, y_sim = simulate_seir(f_obj, h_obj, tsim_length=365, dt=1.0, x0=x0)
+        # MODIFIED: Extended simulation time to 800 days
+        t_sim, x_sim, u_sim, y_sim = simulate_seir(f_obj, h_obj, tsim_length=800, dt=1.0, x0=x0)
         results[option_name] = {'t': t_sim, 'x': x_sim, 'u': u_sim, 'y': y_sim}
 
         ax = plt.subplot(2, 2, i)
@@ -144,10 +148,16 @@ def main():
         plt.plot(t, x[state], label=state)
     plt.xlabel('Time (days)')
     plt.ylabel('Population')
-    plt.title('SEIR with RK4 + Fixed Controls (u1=0.2, u2=u3=0)')
+    # MODIFIED: Updated title to reflect new control values
+    plt.title('SEIR with RK4 + Fixed Controls (u1=0.0, u2=0.008, u3=0)')
     plt.legend()
     plt.grid()
     plt.show()
+
+    # ADDED: Print final S value to verify it reaches ~2000
+    print(f"\nFinal S compartment value: {x['S'][-1]:,.0f}")
+    print(f"Final R compartment value: {x['R'][-1]:,.0f}")
+    print(f"Final I compartment value: {x['I'][-1]:,.0f}")
 
     return results
 
