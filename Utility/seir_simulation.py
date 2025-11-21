@@ -16,7 +16,7 @@ beta = 0.5           # Transmission rate (constant here)
 sigma = 0.2          # Incubation rate (1/sigma = incubation period)
 gamma = 0.1          # Recovery rate (1/gamma = infectious period)
 N = 10_000_000        # Total population (absolute counts)
-
+ 
 # --------------------------
 # Dynamics class F
 
