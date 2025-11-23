@@ -139,7 +139,7 @@ class H(object):
         incidence = beta * (1 - u1) * S * I / self.N
         return np.array([incidence])
 
-    def h_ir_incidencer(self, x_vec, u_vec, return_measurement_names=False):
+    def h_ir_incidence(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
             return ['I', 'R', 'incidence']
 
