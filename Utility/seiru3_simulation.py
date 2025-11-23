@@ -11,7 +11,7 @@ import pybounds
 mu = 0.02 / 365      # Natural mortality rate per day (2% per year)
 sigma = 1.0 / 5.2    # Progression rate from E to I (5.2 days incubation period)
 gamma = 1.0 / 10.0   # Recovery rate (10 days infectious period)
-N = 1000000          # Total population
+N = 10000000          # Total population
 
 ############################################################################################
 # Continuous time dynamics function
@@ -53,11 +53,12 @@ class F(object):
         beta = x_vec[4]
 
         # Extract control inputs
-        u3 = u_vec[0]  # prevention/social distancing
+        u1 = u_vec[0]
+        u3 = u_vec[1]# prevention/social distancing
         
         # SEIR dynamics with controls
         # Force of infection with control u1
-        lambda_infection = beta * (1) * S * I / self.N
+        lambda_infection = beta * (1-u1) * S * I / self.N
 
         # State derivatives
         dS_dt = self.mu * self.N - lambda_infection - self.mu * S
@@ -110,10 +111,10 @@ class H(object):
         S = x_vec[0]
         I = x_vec[2]
         beta = x_vec[4]
-        
+        u1 = u_vec[0]
         
         # New cases (incidence rate)
-        new_cases = beta * (1 ) * S * I / self.N
+        new_cases = beta * (1 -u1) * S * I / self.N
         
         y_vec = np.array([I, new_cases])
         return y_vec
@@ -169,10 +170,10 @@ class H(object):
         R = x_vec[3]
         beta = x_vec[4]
        
-        u3 = u_vec[0]
+        u1 = u_vec[0]
         
         # Flow rates
-        new_infections = beta * (1) * S * I / self.N
+        new_infections = beta * (1-u1) * S * I / self.N
         progressions = self.sigma * E
         recoveries = (self.gamma + u3) * I
         
@@ -191,9 +192,9 @@ class H(object):
         I = x_vec[2]
         R = x_vec[3]
         beta = x_vec[4]
+        u1 = u_vec[0]
         
-        
-        new_cases = beta * (1) * S * I / self.N
+        new_cases = beta * (1-u1) * S * I / self.N
         
         y_vec = np.array([I, R, new_cases])
         return y_vec
@@ -210,9 +211,9 @@ class H(object):
         E = x_vec[1]
         I = x_vec[2]
         beta = x_vec[4]
-        u3 = u_vec[0]
+        u1 = u_vec[0]
         
-        new_infections = beta * (1 ) * S * I / self.N
+        new_infections = beta * (1 - u1) * S * I / self.N
         progressions = self.sigma * E
         
         y_vec = np.array([E, I, new_infections, progressions])
@@ -258,9 +259,9 @@ class H(object):
         I = x_vec[2]
         R = x_vec[3]
         beta = x_vec[4]
-        u3 = u_vec[0]
+        u1 = u_vec[0]
         
-        new_infections = beta * (1) * S * I / self.N
+        new_infections = beta * (1 - u1) * S * I / self.N
         
         y_vec = np.array([S, E, I, R, new_infections])
         return y_vec
@@ -270,7 +271,7 @@ class H(object):
 # SEIR simulation with MPC
 ############################################################################################
 def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
-                  setpoint=None, rterm_u3=1e-4, 
+                  setpoint=None, rterm_u1=1e-4, rterm_u3=1e-4,  
                   x0=None, measurement_noise_stds=None):
     """
     Simulate SEIR disease model with MPC control
@@ -316,7 +317,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     
     # Set state and input names
     state_names = f(None, None, return_state_names=True)
-    input_names = ['u3']  # prevention and treatment
+    input_names = ['u1' , 'u3']  # prevention and treatment
 
     # Choose the measurement function
     if measurement_names is None:
@@ -406,8 +407,8 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['upper', '_x', 'beta'] = 2.0
     
     # Control bounds
-    #simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
-    #simulator.mpc.bounds['upper', '_u', 'u1'] = 0.9  # Max 90% prevention
+    simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
+    simulator.mpc.bounds['upper', '_u', 'u1'] = 0.9  # Max 90% prevention
     simulator.mpc.bounds['lower', '_u', 'u3'] = 0.0
     simulator.mpc.bounds['upper', '_u', 'u3'] = 0.5  # Max treatment rate
 
