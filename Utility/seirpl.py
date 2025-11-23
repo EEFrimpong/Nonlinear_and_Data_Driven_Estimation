@@ -187,7 +187,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None, rterm=1
     cost = I_error**2 + R_error**2
 
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
-    simulator.mpc.set_rterm(u1=0, u2=0, u3=0)
+    simulator.mpc.set_rterm(u1=0.001, u2=0.3, u3=0.005)
 
     # Simulate
     t_sim, x_sim, u_sim, y_sim = simulator.simulate(
