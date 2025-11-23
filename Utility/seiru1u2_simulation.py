@@ -290,7 +290,7 @@ def simulate_seir(f,
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
 
     # Control penalties
-    simulator.mpc.set_rterm(u1=rterm_u1, u3=rterm_u3)
+    simulator.mpc.set_rterm(u1=rterm_u1, u2=rterm_u2)
 
     # ------------------------------------------------------------------
     # Bounds
