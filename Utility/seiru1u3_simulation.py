@@ -271,8 +271,8 @@ class H(object):
 # SEIR simulation with MPC
 ############################################################################################
 def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
-                  setpoint=None, rterm_u1=1e-4, rterm_u3=1e-4, x0=None,
-                  measurement_noise_stds=None):
+                  setpoint=None, rterm_u1=1e-4, rterm_u3=1e-4, 
+                  x0=None, measurement_noise_stds=None):
     """
     Simulate SEIR disease model with MPC control
 
@@ -282,20 +282,21 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         Dynamics function
     h : function
         Measurement function
-    tsim_length : float
+    tsim_length : float, default=365
         Total simulation time in days
-    dt : float
+    dt : float, default=1.0
         Time step in days
-    measurement_names : list
-        Names of measurements
-    setpoint : dict
-        Desired trajectories for states
-    rterm_u1 : float
+    measurement_names : list, optional
+        Names of measurements (auto-detected if None)
+    setpoint : dict, optional
+        Desired trajectories for states (default trajectory if None)
+    rterm_u1 : float, default=1e-4
         Control input penalty for prevention/social distancing
-    rterm_u3 : float
+    rterm_u3 : float, default=1e-4
         Control input penalty for treatment
-    x0 : array-like
+    x0 : array-like, optional
         Initial conditions [S0, E0, I0, R0, beta0]
+        If None, defaults to: [0.9*N, 0.01*N, 0.01*N, remaining, 0.5]
     measurement_noise_stds : dict, optional
         Dictionary mapping measurement names to their noise standard deviations
         Example: {'I_reported': 30, 'new_cases': 50}
@@ -304,6 +305,16 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     --------
     t_sim, x_sim, u_sim, y_sim, simulator
     """
+    
+    # Define default initial conditions FIRST
+    if x0 is None:
+        S0 = 0.90 * N
+        E0 = 0.01 * N
+        I0 = 0.01 * N
+        R0 = N - S0 - E0 - I0
+        beta0 = 0.5
+        x0 = np.array([S0, E0, I0, R0, beta0])
+    
     # Set state and input names
     state_names = f(None, None, return_state_names=True)
     input_names = ['u1', 'u3']  # prevention and treatment
@@ -336,17 +347,12 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
 
     # Define the time horizon
     tsim = np.arange(0, tsim_length, step=dt)
-    no_setpoint = None
 
     # Define default setpoint if not provided
     if setpoint is None:
         # Infection setpoint: Exponential decrease to low endemic level
-        if x0 is not None:
-            I_initial = x0[2]
-            E_initial = x0[1]
-        else:
-            I_initial = 10000
-            E_initial = 5000
+        I_initial = x0[2]
+        E_initial = x0[1]
         
         I_target = 0.0001 * N  # Target 0.01% infected (low endemic level)
         E_target = 0.00005 * N  # Target low exposed level
@@ -356,15 +362,24 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         E_setpoint = E_target + (E_initial - E_target) * np.exp(-tsim / 80)
 
         setpoint = {
-            'S': no_setpoint,
+            'S': np.zeros_like(tsim),  # No setpoint for S
             'E': E_setpoint,
             'I': I_setpoint,
-            'R': no_setpoint,
+            'R': np.zeros_like(tsim),  # No setpoint for R
             'beta': 0.5 * np.ones_like(tsim),  # Target beta (for estimation)
         }
 
-    # Update the simulator set-point
-    simulator.update_dict(setpoint, name='setpoint')
+    # Update the simulator set-point (handle None values properly)
+    # Convert None values to numpy arrays filled with first value
+    setpoint_processed = {}
+    for key, value in setpoint.items():
+        if value is None:
+            # For None setpoints, use zeros (pybounds will handle appropriately)
+            setpoint_processed[key] = np.zeros_like(tsim)
+        else:
+            setpoint_processed[key] = value
+    
+    simulator.update_dict(setpoint_processed, name='setpoint')
 
     # Define MPC cost function
     cost_E = (simulator.model.x['E'] - simulator.model.tvp['E_set']) ** 2
