@@ -138,7 +138,12 @@ class H(object):
 
         incidence = beta * (1 - u1) * S * I / self.N
         return np.array([incidence])
-
+    
+    # ---------------------------------------------------------------------
+    # h_incidence_recovery: [incidence, recovery_flow]
+    #   incidence = beta (1 - u1) S I / N
+    #   recovery  = (gamma) I + u2 R
+    # ---------------------------------------------------------------------
     def h_ir_incidence(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
             return ['I', 'R', 'incidence']
