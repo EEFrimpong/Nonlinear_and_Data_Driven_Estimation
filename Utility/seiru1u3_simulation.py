@@ -271,7 +271,8 @@ class H(object):
 # SEIR simulation with MPC
 ############################################################################################
 def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
-                  setpoint=None, rterm_u1=1e-4, rterm_u3=1e-4, x0=None):
+                  setpoint=None, rterm_u1=1e-4, rterm_u3=1e-4, x0=None,
+                  measurement_noise_stds=None):
     """
     Simulate SEIR disease model with MPC control
 
@@ -295,6 +296,9 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         Control input penalty for treatment
     x0 : array-like
         Initial conditions [S0, E0, I0, R0, beta0]
+    measurement_noise_stds : dict, optional
+        Dictionary mapping measurement names to their noise standard deviations
+        Example: {'I_reported': 30, 'new_cases': 50}
 
     Returns:
     --------
@@ -315,6 +319,20 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator = pybounds.Simulator(f, h, dt=dt, state_names=state_names,
                                    input_names=input_names, measurement_names=measurement_names,
                                    mpc_horizon=int(10/dt))
+
+    # Add measurement noise if specified
+    if measurement_noise_stds is not None:
+        # Convert noise dict to array matching measurement order
+        noise_std_array = []
+        for meas_name in measurement_names:
+            if meas_name in measurement_noise_stds:
+                noise_std_array.append(measurement_noise_stds[meas_name])
+            else:
+                noise_std_array.append(0.0)  # No noise for unmapped measurements
+        
+        # Update simulator with measurement noise
+        simulator.measurement_noise_std = np.array(noise_std_array)
+        print(f"Measurement noise added: {dict(zip(measurement_names, noise_std_array))}")
 
     # Define the time horizon
     tsim = np.arange(0, tsim_length, step=dt)
