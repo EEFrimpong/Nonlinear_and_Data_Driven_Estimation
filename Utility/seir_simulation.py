@@ -98,7 +98,7 @@ def rk4_step(f_func, x, u, dt):
 def rollout_cost_and_trajectory(x0, u_sequence, f_func, dt, horizon_steps,
                                 tvp_I_set=None, tvp_E_set=None,
                                 weight_I=100.0, weight_E=10.0,
-                                rterm=(1e-3, 1e-3, 1e-3), N=N):
+                                rterm=(0.15721, 0.002, 0.04924), N=N):
     """
     Simulate forward for horizon_steps using piecewise-constant controls from u_sequence.
     u_sequence is flat array of length 3*horizon_steps: [u1_0,u2_0,u3_0, u1_1,...]
