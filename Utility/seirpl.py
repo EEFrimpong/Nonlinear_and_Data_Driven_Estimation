@@ -12,10 +12,10 @@ import pybounds
 # Epidemiological parameters (replace drone parameters)
 
 
-mu    = 1 / 70.0       # birth/death rate (example, per year)
+mu    = 0.0000414       # birth/death rate (example, per year)
 beta  = 0.5            # transmission rate
-sigma = 1 / 5.0        # exposed -> infectious rate
-gamma = 1 / 7.0        # recovery rate
+sigma = 0.2        # exposed -> infectious rate
+gamma = 0.4       # recovery rate
 N     = 1_000_000      # total population (assumed constant)
 
 
