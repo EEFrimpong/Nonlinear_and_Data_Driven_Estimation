@@ -23,8 +23,9 @@ class F(object):
         x = [S, E, I, R, beta]
 
     Controls:
-        u = [u1, u3]
+        u = [u1, u2, u3]
         u1: prevention/social distancing (0–1, reduces transmission)
+        u2: vaccination
         u3: treatment rate (adds to gamma)
     """
     def __init__(self, mu=mu, sigma=sigma, gamma=gamma, N=N):
@@ -47,15 +48,15 @@ class F(object):
 
         # controls
         u1 = u_vec[0]  # prevention/social distancing
-        u3 = u_vec[1]  # treatment
-
+        u2 = u_vec[1]  # treatment
+        
         # incidence term
         lambda_inf = beta * (1 - u1) * S * I / self.N
 
-        dSdt    = self.mu * self.N - lambda_inf - self.mu * S
+        dSdt    = self.mu * self.N - lambda_inf -u2 * S- self.mu * S
         dEdt    = lambda_inf - self.sigma * E - self.mu * E
-        dIdt    = self.sigma * E - (self.gamma + u3) * I - self.mu * I
-        dRdt    = (self.gamma + u3) * I - self.mu * R
+        dIdt    = self.sigma * E - (self.gamma) * I - self.mu * I
+        dRdt    = (self.gamma) * I + u2 * S- self.mu * R
         dbetadt = 0.0  # constant beta as state
 
         return np.array([dSdt, dEdt, dIdt, dRdt, dbetadt])
@@ -141,7 +142,7 @@ class H(object):
     # ---------------------------------------------------------------------
     # h_incidence_recovery: [incidence, recovery_flow]
     #   incidence = beta (1 - u1) S I / N
-    #   recovery  = (gamma + u3) I
+    #   recovery  = (gamma) I + u2 R
     # ---------------------------------------------------------------------
     def h_incidence_recovery(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
@@ -151,10 +152,10 @@ class H(object):
         I    = x_vec[2]
         beta = x_vec[4]
         u1   = u_vec[0]
-        u3   = u_vec[1]
+        u2   = u_vec[1]
 
         incidence = beta * (1 - u1) * S * I / self.N
-        recovery  = (self.gamma + u3) * I
+        recovery  = (self.gamma) * I + u2 * S
 
         return np.array([incidence, recovery])
 
@@ -168,7 +169,7 @@ def simulate_seir(f,
                   measurement_names=None,
                   setpoint=None,
                   rterm_u1=1e-4,
-                  rterm_u3=1e-4,
+                  rterm_u2=1e-4,
                   x0=None,
                   measurement_noise_stds=None):
     """
@@ -187,7 +188,7 @@ def simulate_seir(f,
     # State names and input names
     # ------------------------------------------------------------------
     state_names = f(None, None, return_state_names=True)
-    input_names = ['u1', 'u3']
+    input_names = ['u1', 'u2']
 
     # ------------------------------------------------------------------
     # Measurement names
@@ -295,8 +296,8 @@ def simulate_seir(f,
     # Controls
     simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
     simulator.mpc.bounds['upper', '_u', 'u1'] = 0.9
-    simulator.mpc.bounds['lower', '_u', 'u3'] = 0.0
-    simulator.mpc.bounds['upper', '_u', 'u3'] = 0.5
+    simulator.mpc.bounds['lower', '_u', 'u2'] = 0.0
+    simulator.mpc.bounds['upper', '_u', 'u2'] = 0.5
 
     # ------------------------------------------------------------------
     # Simulate with MPC
