@@ -404,17 +404,20 @@ def simulate_tb(f, h, tsim_length=365, dt=1.0, measurement_names=None,
 
     # Define default setpoint if not provided
     if setpoint is None:
-        # Vaccination setpoint: Ramp up to 80% over 180 days
-        V_target = 0.80 * N
-        V_setpoint = np.minimum(V_target * (tsim / 180), V_target)
+        # REALISTIC vaccination setpoint: Gradual increase from 10% to 60% over 1 year
+        V_initial = x0[1] if x0 is not None else 0.10 * N
+        V_target = 0.60 * N  # Target 60% vaccination (realistic for TB)
+        # Gradual ramp over full year
+        V_setpoint = V_initial + (V_target - V_initial) * np.minimum(tsim / tsim_length, 1.0)
 
-        # Infection setpoint: Decrease infections exponentially
+        # Infection setpoint: Gradual decrease to low endemic level
         if x0 is not None:
             I_initial = x0[2]
         else:
             I_initial = 361000
-        I_target = 0.001 * N
-        I_setpoint = I_initial * np.exp(-tsim / 200)
+        I_target = 0.0005 * N  # Target 0.05% infected (low endemic level)
+        # Exponential decay with longer time constant (more realistic)
+        I_setpoint = I_target + (I_initial - I_target) * np.exp(-tsim / 300)
 
         setpoint = {
             'S': no_setpoint,
@@ -443,7 +446,10 @@ def simulate_tb(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     # CORRECTED: Add small epsilon to avoid exact zero (numerical stability)
     epsilon = 1e-6
     
-    simulator.mpc.bounds['lower', '_x', 'S'] = epsilon
+    # Keep minimum S population to ensure recruitment doesn't cause issues
+    min_S = 0.05 * N  # At least 5% must remain susceptible (realistic constraint)
+    
+    simulator.mpc.bounds['lower', '_x', 'S'] = min_S
     simulator.mpc.bounds['upper', '_x', 'S'] = N
     simulator.mpc.bounds['lower', '_x', 'V'] = epsilon
     simulator.mpc.bounds['upper', '_x', 'V'] = N
@@ -456,7 +462,7 @@ def simulate_tb(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['lower', '_x', 'sigma'] = epsilon
     simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0
     simulator.mpc.bounds['lower', '_u', 'alpha'] = 0.0
-    simulator.mpc.bounds['upper', '_u', 'alpha'] = 0.5
+    simulator.mpc.bounds['upper', '_u', 'alpha'] = 0.05  # REALISTIC: Max 5% vaccination per day
     simulator.mpc.bounds['lower', '_u', 'kappa'] = 0.0
     simulator.mpc.bounds['upper', '_u', 'kappa'] = 1.0
 
@@ -470,15 +476,29 @@ def simulate_tb(f, h, tsim_length=365, dt=1.0, measurement_names=None,
 # Example usage
 ############################################################################################
 if __name__ == "__main__":
-    # Define initial conditions
+    # Define REALISTIC initial conditions
+    # Assumption: TB endemic with low vaccination coverage initially
+    initial_V_coverage = 0.10  # Start with only 10% vaccinated (more realistic)
+    initial_I = 361000         # ~0.16% infected
+    initial_R = 12000000       # ~5.4% recovered
+    initial_V = int(N * initial_V_coverage)  # 10% vaccinated
+    initial_S = N - initial_V - initial_I - initial_R  # Remainder susceptible
+    
     x0 = np.array([
-        (N - 158330000 - 361000 - 12000000),  # S
-        158330000,                             # V
-        361000,                                # I
-        12000000,                              # R
-        0.3,                                   # beta
-        0.8                                    # sigma
+        initial_S,     # S ≈ 210,639,000 (94.5% - much more realistic!)
+        initial_V,     # V ≈ 22,300,000 (10%)
+        initial_I,     # I = 361,000 (0.16%)
+        initial_R,     # R = 12,000,000 (5.4%)
+        0.3,           # beta (transmission rate)
+        0.8            # sigma (vaccine leakiness)
     ])
+    
+    print(f"\nInitial Population Distribution:")
+    print(f"  Susceptible (S): {initial_S:,} ({100*initial_S/N:.1f}%)")
+    print(f"  Vaccinated (V):  {initial_V:,} ({100*initial_V/N:.1f}%)")
+    print(f"  Infected (I):    {initial_I:,} ({100*initial_I/N:.2f}%)")
+    print(f"  Recovered (R):   {initial_R:,} ({100*initial_R/N:.1f}%)")
+    print(f"  Total:           {N:,}")
 
     # Create dynamics object
     f_obj = F()
