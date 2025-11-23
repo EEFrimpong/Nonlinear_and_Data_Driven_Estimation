@@ -136,6 +136,19 @@ class H(object):
         y_vec = np.array([S, E, I, R])
         return y_vec
 
+    def h_ir(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 3: y = [I, R]^T
+        """
+        if return_measurement_names:
+            return ['I_measured', 'R_measured']
+
+        I = x_vec[2]
+        R = x_vec[3]
+        
+        y_vec = np.array([I, R])
+        return y_vec
+
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 4: y = [S, E, I, R, beta]^T
