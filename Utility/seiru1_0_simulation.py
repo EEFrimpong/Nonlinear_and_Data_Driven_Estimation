@@ -47,16 +47,16 @@ class F(object):
         beta = x_vec[4]
 
         # controls
-        u1 = u_vec[0]  # prevention/social distancing
-        u2 = u_vec[1]  # treatment
+        u2 = u_vec[0]  # prevention/social distancing
+        u3 = u_vec[1]  # treatment
         
         # incidence term
-        lambda_inf = beta * (1 - u1) * S * I / self.N
+        lambda_inf = beta * (1 - 0) * S * I / self.N
 
         dSdt    = self.mu * self.N - lambda_inf -u2 * S- self.mu * S
         dEdt    = lambda_inf - self.sigma * E - self.mu * E
-        dIdt    = self.sigma * E - (self.gamma) * I - self.mu * I
-        dRdt    = (self.gamma) * I + u2 * S- self.mu * R
+        dIdt    = self.sigma * E - (self.gamma + u3) * I - self.mu * I
+        dRdt    = (self.gamma + u3) * I + u2 * S- self.mu * R
         dbetadt = 0.0  # constant beta as state
 
         return np.array([dSdt, dEdt, dIdt, dRdt, dbetadt])
@@ -134,7 +134,7 @@ class H(object):
         S    = x_vec[0]
         I    = x_vec[2]
         beta = x_vec[4]
-        u1   = u_vec[0]
+        u1   = 0#u_vec[0]
 
         incidence = beta * (1 - u1) * S * I / self.N
         return np.array([incidence])
@@ -153,7 +153,7 @@ class H(object):
         S    = x_vec[0]
         I    = x_vec[2]
         beta = x_vec[4]
-        u1   = u_vec[0]
+        u1   = 0#u_vec[0]
 
         incidence = beta * (1 - u1) * S * I / self.N
         return np.array([I, R, incidence])
@@ -171,7 +171,7 @@ class H(object):
         S    = x_vec[0]
         I    = x_vec[2]
         beta = x_vec[4]
-        u1   = u_vec[0]
+        u1   = 0#u_vec[0]
         u2   = u_vec[1]
 
         incidence = beta * (1 - u1) * S * I / self.N
@@ -188,8 +188,8 @@ def simulate_seir(f,
                   dt=1.0,
                   measurement_names=None,
                   setpoint=None,
-                  rterm_u1=1e-4,
                   rterm_u2=1e-4,
+                  rterm_u3=1e-4,
                   x0=None,
                   measurement_noise_stds=None):
     """
@@ -208,7 +208,7 @@ def simulate_seir(f,
     # State names and input names
     # ------------------------------------------------------------------
     state_names = f(None, None, return_state_names=True)
-    input_names = ['u1', 'u2']
+    input_names = ['u2', 'u3']
 
     # ------------------------------------------------------------------
     # Measurement names
@@ -290,7 +290,7 @@ def simulate_seir(f,
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
 
     # Control penalties
-    simulator.mpc.set_rterm(u1=rterm_u1, u2=rterm_u2)
+    simulator.mpc.set_rterm(u2=rterm_u2, u3=rterm_u3)
 
     # ------------------------------------------------------------------
     # Bounds
@@ -314,10 +314,10 @@ def simulate_seir(f,
         simulator.mpc.bounds['upper', '_x', 'beta'] = 2.0
 
     # Controls
-    simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
-    simulator.mpc.bounds['upper', '_u', 'u1'] = 0.9
     simulator.mpc.bounds['lower', '_u', 'u2'] = 0.0
-    simulator.mpc.bounds['upper', '_u', 'u2'] = 0.5
+    simulator.mpc.bounds['upper', '_u', 'u2'] = 0.9
+    simulator.mpc.bounds['lower', '_u', 'u3'] = 0.0
+    simulator.mpc.bounds['upper', '_u', 'u3'] = 0.5
 
     # ------------------------------------------------------------------
     # Simulate with MPC
