@@ -1,0 +1,324 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+from scipy.integrate import odeint
+import scipy.optimize
+
+from scipy import interpolate
+
+import pybounds
+
+############################################################################################
+# Epidemiological parameters (replace drone parameters)
+############################################################################################
+mu    = 1/70.0       # birth/death rate (example, per year)
+beta  = 0.5          # transmission rate
+sigma = 1/5.0        # exposed -> infectious rate
+gamma = 1/7.0        # recovery rate
+N     = 1_000_000    # total population (assumed constant)
+
+############################################################################################
+# continuous time SEIR dynamics function (control-affine)
+############################################################################################
+class F(object):
+    def __init__(self, k=None):
+        """
+        SEIR control-affine dynamics with state x = [S, E, I, R, k]^T.
+        If k is provided (not None), then the state is [S, E, I, R] and
+        k is treated as a fixed parameter.
+        """
+        self.k = k
+
+    def f(self, x_vec, u_vec, mu=mu, beta=beta, sigma=sigma, gamma=gamma, N=N,
+          return_state_names=False):
+        """
+        Continuous time SEIR dynamics in control-affine form:
+
+        x_dot = f0(x) +
+                f1(x) * u1 +
+                f2(x) * u2 +
+                f3(x) * u3
+
+        where
+
+        f0(x) =
+        ( mu N - beta S I/N - mu S,
+          beta S I/N - (sigma + mu) E,
+          sigma E - (gamma + mu) I,
+          gamma I - mu R,
+          0 )^T
+
+        f1(x) =
+        ( beta S I/N,
+         -beta S I/N,
+          0,
+          0,
+          0 )^T
+
+        f2(x) =
+        ( -S,
+           0,
+           0,
+           S,
+           0 )^T
+
+        f3(x) =
+        ( 0,
+          0,
+         -I,
+          I,
+          0 )^T
+
+        State:
+            x_vec : [S, E, I, R, k]  (if k is None)
+                    [S, E, I, R]     (if self.k is fixed)
+
+        Controls:
+            u_vec : [u1, u2, u3]
+        """
+
+        k = self.k
+
+        # Dimension checks
+        if x_vec is not None:
+            if k is None:
+                assert len(x_vec) == 5
+            else:
+                assert len(x_vec) == 4
+
+        if return_state_names:
+            if k is None:
+                return ['S', 'E', 'I', 'R', 'k']
+            else:
+                return ['S', 'E', 'I', 'R']
+
+        # Extract state variables
+        S = x_vec[0]
+        E = x_vec[1]
+        I_ = x_vec[2]
+        R = x_vec[3]
+        if k is None:
+            k = x_vec[4]  # here k is just carried as a constant parameter/state
+
+        # Extract control inputs
+        u1 = u_vec[0]   # first control
+        u2 = u_vec[1]   # second control
+        u3 = u_vec[2]   # third control
+
+        # Common infection term
+        infection_term = beta * S * I_ / N
+
+        # f0(x): drift dynamics (no controls)
+        f0_contribution = np.array([
+            mu * N - infection_term - mu * S,      # dS/dt
+            infection_term - (sigma + mu) * E,     # dE/dt
+            sigma * E - (gamma + mu) * I_,         # dI/dt
+            gamma * I_ - mu * R,                   # dR/dt
+            0.0                                    # dk/dt = 0
+        ])
+
+        # f1(x) * u1
+        f1_contribution = u1 * np.array([
+            infection_term,    # S
+           -infection_term,    # E
+            0.0,               # I
+            0.0,               # R
+            0.0                # k
+        ])
+
+        # f2(x) * u2
+        f2_contribution = u2 * np.array([
+           -S,                 # S
+            0.0,               # E
+            0.0,               # I
+            S,                 # R
+            0.0                # k
+        ])
+
+        # f3(x) * u3
+        f3_contribution = u3 * np.array([
+            0.0,               # S
+            0.0,               # E
+           -I_,                # I
+            I_,                # R
+            0.0                # k
+        ])
+
+        # Combined dynamics
+        x_dot_vec = f0_contribution + f1_contribution + f2_contribution + f3_contribution
+
+        if self.k is None:
+            return x_dot_vec          # [S_dot, E_dot, I_dot, R_dot, k_dot]
+        else:
+            return x_dot_vec[0:4]     # if k is fixed, return only S,E,I,R derivatives
+
+
+############################################################################################
+# continuous time measurement functions (for SEIR)
+############################################################################################
+class H(object):
+    def __init__(self, measurement_option='h_I_R', k=None):
+        """
+        For SEIR, we'll measure only I and R: y = [I, R].
+
+        measurement_option is kept for compatibility with the original pattern.
+        """
+        self.k = k
+        self.measurement_option = measurement_option
+
+    def h(self, x_vec, u_vec, return_measurement_names=False):
+        h_func = self.__getattribute__(self.measurement_option)
+        return h_func(x_vec, u_vec, return_measurement_names=return_measurement_names)
+
+    def h_I_R(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement function: y = [I, R].
+        """
+        if return_measurement_names:
+            return ['I', 'R']
+
+        # Extract state variables
+        S = x_vec[0]
+        E = x_vec[1]
+        I_ = x_vec[2]
+        R = x_vec[3]
+        # k may be part of the state or fixed; we don't measure it
+        # if self.k is None and len(x_vec) == 5: k = x_vec[4]
+
+        # Controls not used in measurement but kept for signature compatibility
+        # u1 = u_vec[0]; u2 = u_vec[1]; u3 = u_vec[2]
+
+        y_vec = np.array([I_, R])
+        return y_vec
+
+
+############################################################################################
+# SEIR simulation with pybounds (MPC on I,R if you want)
+############################################################################################
+def simulate_seir(f, h, tsim_length=200, dt=1.0, measurement_names=None,
+                  rterm=1e-4):
+    """
+    Simple wrapper using pybounds.Simulator, analogous to the drone case,
+    but for the SEIR system.
+
+    Here we create a constant setpoint I_set = 0, R_set = 0 for illustration
+    and define an MPC objective to drive I and R toward these values.
+    """
+
+    # set state and input names
+    state_names = f(None, None, return_state_names=True)   # ['S','E','I','R','k'] or ['S','E','I','R']
+    input_names = ['u1', 'u2', 'u3']
+
+    # choose the measurement function
+    if measurement_names is None:
+        try:
+            measurement_names = h(None, None, return_measurement_names=True)
+        except:
+            raise ValueError('Need to provide measurement_names as a list of strings')
+
+    # initialize simulator
+    simulator = pybounds.Simulator(f, h, dt=dt,
+                                   state_names=state_names,
+                                   input_names=input_names,
+                                   measurement_names=measurement_names,
+                                   mpc_horizon=int(10/dt))  # e.g. 10 time steps horizon
+
+    # Define time grid and setpoints
+    tsim = np.arange(0, tsim_length, step=dt)
+    NA  = np.zeros_like(tsim)
+
+    # For SEIR: we’ll specify desired trajectories for I and R
+    I_set = np.zeros_like(tsim)  # desired infections (e.g. zero)
+    R_set = np.zeros_like(tsim)  # desired recovered (e.g. zero or some target)
+
+    setpoint = {
+        'S': NA,       # no explicit target in cost
+        'E': NA,       # no explicit target in cost
+        'I': I_set,    # will be used in cost
+        'R': R_set,    # will be used in cost
+        'k': np.ones_like(tsim),
+    }
+
+    if 'k' not in state_names:
+        del setpoint['k']
+
+    # Update the simulator set-point
+    simulator.update_dict(setpoint, name='setpoint')
+
+    # Define MPC cost function: penalize squared error in I and R
+    I_error = simulator.model.x['I'] - simulator.model.tvp['I_set']
+    R_error = simulator.model.x['R'] - simulator.model.tvp['R_set']
+    cost = I_error**2 + R_error**2
+
+    # Set cost function
+    simulator.mpc.set_objective(mterm=cost, lterm=cost)
+
+    # Set input penalty (regularization)
+    simulator.mpc.set_rterm(u1=rterm, u2=rterm, u3=rterm)
+
+    # Optionally, you can add bounds on states/controls here, e.g.:
+    # simulator.mpc.bounds['lower', '_x', 'S'] = 0.0
+    # simulator.mpc.bounds['lower', '_x', 'E'] = 0.0
+    # simulator.mpc.bounds['lower', '_x', 'I'] = 0.0
+    # simulator.mpc.bounds['lower', '_x', 'R'] = 0.0
+
+    # Run simulation using MPC
+    t_sim, x_sim, u_sim, y_sim = simulator.simulate(x0=None, u=None,
+                                                    mpc=True,
+                                                    return_full_output=True)
+
+    # Return
+    return t_sim, x_sim, u_sim, y_sim, simulator
+
+
+###############################################################################################
+# Misc helper functions (unchanged)
+###############################################################################################
+
+def generate_smooth_curve(t_points, method='spline', smoothness=0.1,
+                          amplitude=1.0, seed=None):
+    """
+    Generate a smooth random curve as a function of time points.
+    (Left unchanged from your original, in case you want to reuse it.)
+    """
+    if seed is not None:
+        rng = np.random.default_rng(seed)
+
+    t_points = np.array(t_points)
+
+    if method == 'spline':
+        # Generate random control points and interpolate with splines
+        n_control = max(5, int(len(t_points) * smoothness))
+        control_t = np.linspace(t_points[0], t_points[-1], n_control)
+        control_y = np.random.normal(0, amplitude/3, n_control)
+
+        # Use cubic spline interpolation
+        spline = interpolate.CubicSpline(control_t, control_y)
+        return spline(t_points)
+
+    elif method == 'sine_sum':
+        # Sum of random sine waves with different frequencies
+        n_harmonics = max(3, int(20 * smoothness))
+        result = np.zeros_like(t_points, dtype=float)
+
+        for i in range(n_harmonics):
+            freq = np.random.exponential(1.0 / smoothness)
+            phase = np.random.uniform(0, 2 * np.pi)
+            amp = np.random.uniform(0, amplitude) / (i + 1)  # Decay higher frequencies
+            result += amp * np.sin(2 * np.pi * freq * t_points + phase)
+
+        return result
+
+    elif method == 'noise_filter':
+        from scipy.signal import butter, filtfilt
+
+        noise = np.random.normal(0, amplitude, len(t_points))
+
+        nyquist = 0.5 * len(t_points) / (t_points[-1] - t_points[0])
+        cutoff = nyquist * smoothness
+        b, a = butter(3, cutoff / nyquist, btype='low')
+
+        return filtfilt(b, a, noise)
+
+    else:
+        raise ValueError("Method must be 'spline', 'sine_sum', or 'noise_filter'")
