@@ -136,19 +136,6 @@ class H(object):
         y_vec = np.array([S, E, I, R])
         return y_vec
 
-    def h_ir(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement 3: y = [I, R]^T
-        """
-        if return_measurement_names:
-            return ['I_measured', 'R_measured']
-
-        I = x_vec[2]
-        R = x_vec[3]
-        
-        y_vec = np.array([I, R])
-        return y_vec
-
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 4: y = [S, E, I, R, beta]^T
@@ -230,6 +217,53 @@ class H(object):
         progressions = self.sigma * E
         
         y_vec = np.array([E, I, new_infections, progressions])
+        return y_vec
+
+    def h_ir(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 8: y = [I, R]^T
+        Simple practical measurement: infected and recovered only
+        """
+        if return_measurement_names:
+            return ['I_measured', 'R_measured']
+
+        I = x_vec[2]
+        R = x_vec[3]
+        
+        y_vec = np.array([I, R])
+        return y_vec
+
+    def h_i_only(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 9: y = [I]
+        Minimal measurement: infected only
+        """
+        if return_measurement_names:
+            return ['I_measured']
+
+        I = x_vec[2]
+        
+        y_vec = np.array([I])
+        return y_vec
+
+    def h_seir_flows(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 10: y = [S, E, I, R, new_infections]^T
+        Compartments plus new infection rate
+        """
+        if return_measurement_names:
+            return ['S_measured', 'E_measured', 'I_measured', 'R_measured', 'new_infections']
+
+        S = x_vec[0]
+        E = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        beta = x_vec[4]
+        u1 = u_vec[0]
+        
+        new_infections = beta * (1 - u1) * S * I / self.N
+        
+        y_vec = np.array([S, E, I, R, new_infections])
         return y_vec
 
 
@@ -384,13 +418,16 @@ if __name__ == "__main__":
 
     # Test all measurement options
     measurement_options = [
-        ('h_reported_cases', 'Measurement 1: I only (basic)'),
-        ('h_incidence', 'Measurement 2: I + new cases'),
-        ('h_incidence_recovery', 'Measurement 3: I + R + new cases'),
-        ('h_ei_flows', 'Measurement 4: E + I + flows'),
-        ('h_seir', 'Measurement 5: All compartments (S,E,I,R)'),
-        ('h_seir_with_beta', 'Measurement 6: SEIR + beta'),
-        ('h_with_flows', 'Measurement 7: SEIR + all flows ⭐ BEST')
+        ('h_i_only', 'Measurement 1: I only (minimal)'),
+        ('h_ir', 'Measurement 2: I + R'),
+        ('h_reported_cases', 'Measurement 3: I only (basic)'),
+        ('h_incidence', 'Measurement 4: I + new cases'),
+        ('h_incidence_recovery', 'Measurement 5: I + R + new cases'),
+        ('h_ei_flows', 'Measurement 6: E + I + flows'),
+        ('h_seir', 'Measurement 7: All compartments (S,E,I,R)'),
+        ('h_seir_flows', 'Measurement 8: SEIR + new infections'),
+        ('h_seir_with_beta', 'Measurement 9: SEIR + beta'),
+        ('h_with_flows', 'Measurement 10: SEIR + all flows ⭐ BEST')
     ]
 
     results = {}
@@ -440,14 +477,18 @@ if __name__ == "__main__":
     print("    u₃: Treatment rate (0-0.5 per day)")
     print("="*80)
     print("\nAvailable measurement options:")
-    print("  BASIC:")
-    print("    - h_reported_cases:     I only")
+    print("  MINIMAL:")
+    print("    - h_i_only:             I only")
+    print("    - h_ir:                 I + R")
+    print("    - h_reported_cases:     I only (basic)")
+    print("\n  WITH FLOWS:")
     print("    - h_incidence:          I + new cases")
     print("    - h_incidence_recovery: I + R + new cases")
-    print("\n  INTERMEDIATE:")
     print("    - h_ei_flows:           E + I + transition flows")
+    print("\n  COMPARTMENTS:")
     print("    - h_seir:               All compartments (S,E,I,R)")
-    print("\n  ADVANCED:")
+    print("    - h_seir_flows:         SEIR + new infections")
+    print("\n  FULL OBSERVABILITY:")
     print("    - h_seir_with_beta:     SEIR + beta parameter")
     print("    - h_with_flows:         SEIR + all flows ⭐ BEST")
     print("="*80)
