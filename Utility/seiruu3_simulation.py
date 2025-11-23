@@ -111,7 +111,7 @@ class H(object):
         return np.array([I, R])
 
     # ---------------------------------------------------------------------
-    # h_seir: S, E, I, R (no beta)
+    # h_seir: S, E, I, R (no beta)p
     # ---------------------------------------------------------------------
     def h_seir(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
