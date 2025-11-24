@@ -1,5 +1,6 @@
 # ===============================================================
 # SEASONAL-BETA SEIR MODEL WITH MULTIPLE MEASUREMENTS + MPC
+# Fixed version for observability analysis
 # ===============================================================
 
 import numpy as np
@@ -95,7 +96,7 @@ class H(object):
 
     # helper
     def _beta_eff(self, x_vec, u_vec):
-        S,E,I,R,b = x_vec
+        S, E, I, R, b = x_vec
         u1, u3, t = u_vec
         seasonal = 1 + self.epsilon * np.cos(2*np.pi*t/self.T)
         return self.beta0 * seasonal * (1 - u1)
@@ -105,7 +106,7 @@ class H(object):
     def h_ir_newcases(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
             return ['I_measured', 'R_measured', 'new_infections']
-        S,E,I,R,b = x_vec
+        S, E, I, R, b = x_vec
         beta_eff = self._beta_eff(x_vec, u_vec)
         new_inf = beta_eff * S * I / self.N
         return np.array([I, R, new_inf])
@@ -118,33 +119,33 @@ class H(object):
     def h_incidence(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
             return ['I_reported', 'new_cases']
-        S,E,I,R,b = x_vec
+        S, E, I, R, b = x_vec
         beta_eff = self._beta_eff(x_vec, u_vec)
         return np.array([I, beta_eff*S*I/self.N])
 
     def h_seir(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
-            return ['S','E','I','R']
+            return ['S', 'E', 'I', 'R']
         return np.array(x_vec[:4])
 
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
-            return ['S','E','I','R','beta_dummy']
+            return ['S', 'E', 'I', 'R', 'beta_dummy']
         return np.array(x_vec)
 
     def h_with_flows(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
-            return ['S','E','I','R','new_infections','progressions','recoveries']
-        S,E,I,R,b = x_vec
+            return ['S', 'E', 'I', 'R', 'new_infections', 'progressions', 'recoveries']
+        S, E, I, R, b = x_vec
         beta_eff = self._beta_eff(x_vec, u_vec)
         new_inf = beta_eff*S*I/self.N
         prog = self.sigma*E
-        rec  = (self.gamma+u_vec[1])*I
-        return np.array([S,E,I,R,new_inf,prog,rec])
+        rec = (self.gamma+u_vec[1])*I
+        return np.array([S, E, I, R, new_inf, prog, rec])
 
 
 ###############################################################
-# 3. MPC SIMULATOR (FIXED)
+# 3. MPC SIMULATOR (FIXED FOR PYBOUNDS)
 ###############################################################
 def simulate_seir(f, h,
                   tsim_length=365, dt=1.0,
@@ -162,10 +163,10 @@ def simulate_seir(f, h,
         I0 = 0.01*N
         R0 = N - S0 - E0 - I0
         beta0 = beta0_default
-        x0 = np.array([S0,E0,I0,R0,beta0])
+        x0 = np.array([S0, E0, I0, R0, beta0])
 
     state_names = f(None, None, return_state_names=True)
-    input_names = ['u1','u3','time']
+    input_names = ['u1', 'u3', 'time']
 
     if measurement_names is None:
         measurement_names = h(None, None, return_measurement_names=True)
@@ -186,7 +187,10 @@ def simulate_seir(f, h,
 
     tsim = np.arange(0, tsim_length, dt)
 
-    # FIXED: Only create setpoints for E and I (used in cost function)
+    # ================================================================
+    # CRITICAL FIX: Only create setpoints for E and I
+    # These are the ONLY states referenced in the cost function below
+    # ================================================================
     if setpoint is None:
         setpoint = {}
         if 'E' in state_names:
@@ -196,9 +200,9 @@ def simulate_seir(f, h,
             idx_I = state_names.index('I')
             setpoint['I'] = np.ones_like(tsim) * x0[idx_I]
     
-    # FIXED: Only process E and I setpoints
+    # Process setpoint - ONLY for E and I (not S, R, or beta_dummy)
     setpoint_processed = {}
-    for key in ['E', 'I']:
+    for key in ['E', 'I']:  # ONLY these two states
         if key in setpoint and setpoint[key] is not None:
             arr = np.asarray(setpoint[key]).squeeze()
             if arr.ndim == 0:  # scalar -> broadcast
@@ -212,7 +216,7 @@ def simulate_seir(f, h,
 
     simulator.update_dict(setpoint_processed, name='setpoint')
 
-    # cost
+    # Cost function - only references E and I
     cost = 10*(simulator.model.x['E'] - simulator.model.tvp['E_set'])**2 \
          + 100*(simulator.model.x['I'] - simulator.model.tvp['I_set'])**2
 
@@ -221,19 +225,19 @@ def simulate_seir(f, h,
 
     # bounds
     eps = 1e-6
-    for v in ['S','E','I','R']:
-        simulator.mpc.bounds['lower','_x',v] = eps
-        simulator.mpc.bounds['upper','_x',v] = N
-    simulator.mpc.bounds['lower','_x','beta_dummy'] = 0.1
-    simulator.mpc.bounds['upper','_x','beta_dummy'] = 2.0
+    for v in ['S', 'E', 'I', 'R']:
+        simulator.mpc.bounds['lower', '_x', v] = eps
+        simulator.mpc.bounds['upper', '_x', v] = N
+    simulator.mpc.bounds['lower', '_x', 'beta_dummy'] = 0.1
+    simulator.mpc.bounds['upper', '_x', 'beta_dummy'] = 2.0
 
-    simulator.mpc.bounds['lower','_u','u1'] = 0.0
-    simulator.mpc.bounds['upper','_u','u1'] = 0.9
-    simulator.mpc.bounds['lower','_u','u3'] = 0.0
-    simulator.mpc.bounds['upper','_u','u3'] = 0.5
+    simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
+    simulator.mpc.bounds['upper', '_u', 'u1'] = 0.9
+    simulator.mpc.bounds['lower', '_u', 'u3'] = 0.0
+    simulator.mpc.bounds['upper', '_u', 'u3'] = 0.5
 
-    simulator.mpc.bounds['lower','_u','time'] = 0.0
-    simulator.mpc.bounds['upper','_u','time'] = tsim_length
+    simulator.mpc.bounds['lower', '_u', 'time'] = 0.0
+    simulator.mpc.bounds['upper', '_u', 'time'] = tsim_length
 
     return simulator.simulate(
         x0=x0,
@@ -247,8 +251,12 @@ def simulate_seir(f, h,
 # Quick self-test
 ###############################################################################
 if __name__ == "__main__":
+    print("Testing sseir_b_simulation module...")
+    
     f = F().f
     h = H('h_ir_newcases').h
+    
+    print("Available measurements:", h(None, None, return_measurement_names=True))
     
     measurement_noise_stds = {
         'I_measured': 6000,
@@ -256,6 +264,7 @@ if __name__ == "__main__":
         'new_infections': 4000
     }
     
+    print("Running simulation...")
     t_sim, x_sim, u_sim, y_sim = simulate_seir(
         f,
         h,
@@ -264,60 +273,40 @@ if __name__ == "__main__":
         measurement_noise_stds=measurement_noise_stds
     )
     
+    print(f"Simulation completed successfully!")
+    print(f"Time steps: {len(t_sim)}")
+    print(f"States: {list(x_sim.keys())}")
+    print(f"Controls: {list(u_sim.keys())}")
+    print(f"Measurements: {list(y_sim.keys())}")
+    
     # Plot results
-    plt.figure(figsize=(14, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     
-    plt.subplot(3, 2, 1)
-    plt.plot(t_sim, x_sim['S'], label='S')
-    plt.plot(t_sim, x_sim['E'], label='E')
-    plt.plot(t_sim, x_sim['I'], label='I')
-    plt.plot(t_sim, x_sim['R'], label='R')
-    plt.xlabel('Time (days)')
-    plt.ylabel('Population')
-    plt.title('SEIR Compartments')
-    plt.legend()
-    plt.grid(True)
+    axes[0, 0].plot(t_sim, x_sim['I'])
+    axes[0, 0].set_xlabel('Time (days)')
+    axes[0, 0].set_ylabel('Infectious')
+    axes[0, 0].set_title('Infectious Population')
+    axes[0, 0].grid(True)
     
-    plt.subplot(3, 2, 2)
-    plt.plot(t_sim, x_sim['I'])
-    plt.xlabel('Time (days)')
-    plt.ylabel('Infectious')
-    plt.title('Infectious Population')
-    plt.grid(True)
+    axes[0, 1].plot(t_sim, x_sim['R'])
+    axes[0, 1].set_xlabel('Time (days)')
+    axes[0, 1].set_ylabel('Recovered')
+    axes[0, 1].set_title('Recovered Population')
+    axes[0, 1].grid(True)
     
-    plt.subplot(3, 2, 3)
-    plt.plot(t_sim, u_sim['u1'], label='u1 (prevention)')
-    plt.plot(t_sim, u_sim['u3'], label='u3 (treatment)')
-    plt.xlabel('Time (days)')
-    plt.ylabel('Control')
-    plt.title('Control Inputs')
-    plt.legend()
-    plt.grid(True)
+    axes[1, 0].plot(t_sim, u_sim['u1'], label='u1 (prevention)')
+    axes[1, 0].plot(t_sim, u_sim['u3'], label='u3 (treatment)')
+    axes[1, 0].set_xlabel('Time (days)')
+    axes[1, 0].set_ylabel('Control')
+    axes[1, 0].set_title('Control Inputs')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True)
     
-    plt.subplot(3, 2, 4)
-    plt.plot(t_sim, y_sim['I_measured'], label='I measured (noisy)')
-    plt.plot(t_sim, x_sim['I'], '--', label='I true', alpha=0.7)
-    plt.xlabel('Time (days)')
-    plt.ylabel('Infectious')
-    plt.title('Measured vs True I')
-    plt.legend()
-    plt.grid(True)
-    
-    plt.subplot(3, 2, 5)
-    plt.plot(t_sim, y_sim['new_infections'])
-    plt.xlabel('Time (days)')
-    plt.ylabel('New Infections/day')
-    plt.title('Daily New Infections')
-    plt.grid(True)
-    
-    plt.subplot(3, 2, 6)
-    plt.plot(t_sim, y_sim['R_measured'], label='R measured (noisy)')
-    plt.plot(t_sim, x_sim['R'], '--', label='R true', alpha=0.7)
-    plt.xlabel('Time (days)')
-    plt.ylabel('Recovered')
-    plt.title('Measured vs True R')
-    plt.legend()
-    plt.grid(True)
+    axes[1, 1].plot(t_sim, y_sim['new_infections'])
+    axes[1, 1].set_xlabel('Time (days)')
+    axes[1, 1].set_ylabel('New Infections/day')
+    axes[1, 1].set_title('Daily New Infections')
+    axes[1, 1].grid(True)
     
     plt.tight_layout()
     plt.show()
