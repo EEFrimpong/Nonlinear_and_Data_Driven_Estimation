@@ -147,8 +147,8 @@ class H(object):
         """
         if return_measurement_names:
             return ['I_measured', 'R_measured']
-        S        = x_vec[0]
-        I        = x_vec[2]    
+        I        = x_vec[2]
+        R        = x_vec[3]    
         return np.array([x_vec[2], x_vec[3]])
 
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
