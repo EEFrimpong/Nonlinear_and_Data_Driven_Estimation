@@ -130,6 +130,14 @@ class H(object):
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured']
         return np.array([x_vec[0], x_vec[1], x_vec[2], x_vec[3]])
 
+    def h_sir(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement: y = [S, I, R]^T
+        """
+        if return_measurement_names:
+            return ['S_measured', 'E_measured', 'I_measured', 'R_measured']
+        return np.array([x_vec[0], x_vec[2], x_vec[3]])
+
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement: y = [S, E, I, R, beta_eff, sigma]^T
