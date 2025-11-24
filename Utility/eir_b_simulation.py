@@ -14,8 +14,8 @@ gamma = 1.0 / 10.0   # Recovery rate (10 days infectious period)
 N = 10000000          # Total population
 
 # NEW PARAMETERS FOR SEASONAL BETA
-beta0_default = 0.5    # baseline transmission
-epsilon_default = 0.2  # seasonal amplitude
+beta0_default = 0.3    # baseline transmission
+epsilon_default = 0.01  # seasonal amplitude
 T_default = 365        # seasonal period
 
 ############################################################################################
