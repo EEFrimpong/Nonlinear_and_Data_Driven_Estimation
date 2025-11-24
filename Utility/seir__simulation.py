@@ -11,7 +11,7 @@ import pybounds
 mu = 0.02 / 365      # Natural mortality rate per day (2% per year)
 sigma = 1.0 / 5.2    # Progression rate from E to I (5.2 days incubation period)
 gamma = 1.0 / 10.0   # Recovery rate (10 days infectious period)
-N = 1000000          # Total population
+N = 10000000          # Total population
 
 # NEW PARAMETERS FOR SEASONAL BETA
 beta0_default = 0.5    # baseline transmission
@@ -125,6 +125,11 @@ class H(object):
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured']
         return np.array([x_vec[0], x_vec[1], x_vec[2], x_vec[3]])
+
+    def h_ir(self, x_vec, u_vec, return_measurement_names=False):
+        if return_measurement_names:
+            return ['I_measured', 'R_measured']
+        return np.array([ x_vec[2], x_vec[3]])
 
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
