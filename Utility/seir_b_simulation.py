@@ -226,4 +226,11 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['upper','_u','time'] = tsim_length
 
     # Run simulation (NOTE: simulator automatically supplies time to f)
-    t_sim, x_sim, u_sim, y_sim = simu
+    t_sim, x_sim, u_sim, y_sim = simulator.simulate(
+        x0=x0,
+        u=None,
+        mpc=True,
+        return_full_output=True
+    )
+
+    return t_sim, x_sim, u_sim, y_sim, simulator
