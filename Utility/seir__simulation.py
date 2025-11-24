@@ -50,13 +50,13 @@ class F(object):
             beta_eff(t) * (1 - u1) * S I / N, where beta_eff has its own ODE.
 
         Here:
-            dS/dt       = μN - beta_eff * (1 - u1) * S I / N - u2 S - μS
-            dE/dt       = beta_eff * (1 - u1) * S I / N - σ E - μE
-            dI/dt       = σ E - (γ + u3) I - μI
-            dR/dt       = (γ + u3) I + u2 S - μR
-            d beta_eff/dt = beta0 * (-ε * 2π/T) sin(2π t/T) (1 - u1)    [Option A]
-            dσ/dt       = 0
-            dt/dt       = 1
+            dS/dt         = μN - beta_eff (1 - u1) S I / N - u2 S - μS
+            dE/dt         = beta_eff (1 - u1) S I / N - σ E - μE
+            dI/dt         = σ E - (γ + u3) I - μI
+            dR/dt         = (γ + u3) I + u2 S - μR
+            d(beta_eff)/dt = beta0 * (-ε * 2π/T) sin(2π t/T) (1 - u1)
+            dσ/dt         = 0
+            dt/dt         = 1
         """
 
         if return_state_names:
@@ -143,13 +143,13 @@ class H(object):
 
     def h_ir(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement: y = [S, E, I, R]^T
+        Measurement: y = [I, R]^T
         """
         if return_measurement_names:
             return ['I_measured', 'R_measured']
-        I        = x_vec[2]
-        R        = x_vec[3]    
-        return np.array([x_vec[2], x_vec[3]])
+        I = x_vec[2]
+        R = x_vec[3]
+        return np.array([I, R])
 
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
         """
