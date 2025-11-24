@@ -126,6 +126,18 @@ class H(object):
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured']
         return np.array([x_vec[0], x_vec[1], x_vec[2], x_vec[3]])
 
+    def h_ir_newcases(self, x_vec, u_vec, return_measurement_names=False):
+        if return_measurement_names:
+            return ['I_measured', 'R_measured', 'new_infections']
+        S,E,I,R,beta_dummy = x_vec
+        u1 = u_vec[0]
+        u3 = u_vec[1]
+
+        # flows approximated with dummy beta for compatibility
+        new_inf = beta_dummy*(1-u1)*S*I/self.N    
+        return np.array([x_vec[2], x_vec[3], new_inf])
+
+
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured', 'beta']
