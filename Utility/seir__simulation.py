@@ -51,8 +51,8 @@ class F(object):
 
         Controls:
             u1 = u_vec[0]   social distancing
-            u3 = u_vec[1]   treatment
-            t  = u_vec[2]   (time injected manually)
+            u2 = u_vec[1]   treatment
+            u3  = u_vec[2]   (time injected manually)
         """
 
         if return_state_names:
@@ -67,8 +67,8 @@ class F(object):
 
         # Extract controls
         u1 = u_vec[0]     # prevention
-        u3 = u_vec[1]     # treatment
-        t = u_vec[2]      # TIME (important!!)
+        u2 = u_vec[1]     # treatment
+        u3 = u_vec[2]      # TIME (important!!)
 
         # Compute β_eff(t)
         seasonal = 1.0 + self.epsilon * np.cos(2 * np.pi * t / self.T)
@@ -78,10 +78,10 @@ class F(object):
         lambda_inf = beta_eff * S * I / self.N
 
         # SEIR equations
-        dS_dt = self.mu * self.N - lambda_inf - self.mu * S
+        dS_dt = self.mu * self.N - lambda_inf u2*S- self.mu * S
         dE_dt = lambda_inf - self.sigma * E - self.mu * E
         dI_dt = self.sigma * E - (self.gamma + u3) * I - self.mu * I
-        dR_dt = (self.gamma + u3) * I - self.mu * R
+        dR_dt = (self.gamma + u3) * I + u2*S- self.mu * R
 
         # beta_dummy remains constant (still part of state vector for compatibility)
         dbeta_dt = 0.0
@@ -138,7 +138,8 @@ class H(object):
 
         S,E,I,R,beta_dummy = x_vec
         u1 = u_vec[0]
-        u3 = u_vec[1]
+        u2 = u_vec[1]
+        u3 = u_vec[2]
 
         # flows approximated with dummy beta for compatibility
         new_inf = beta_dummy*(1-u1)*S*I/self.N
@@ -152,7 +153,7 @@ class H(object):
 # SEIR simulation with MPC (MODIFIED TO PASS TIME INTO u_vec)
 ############################################################################################
 def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
-                  setpoint=None, rterm_u1=1e-4, rterm_u3=1e-4,
+                  setpoint=None, rterm_u1=1e-4, rterm_u2 = 1e-4, rterm_u3=1e-4,
                   x0=None, measurement_noise_stds=None):
 
     # Default initial conditions
@@ -165,7 +166,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         x0 = np.array([S0, E0, I0, R0, beta0])
 
     state_names = f(None, None, return_state_names=True)
-    input_names = ['u1', 'u3', 'time']   # <<< NEW THIRD INPUT = TIME
+    input_names = ['u1', 'u2', 'u3']   # <<< NEW THIRD INPUT = TIME
 
     if measurement_names is None:
         measurement_names = h(None, None, return_measurement_names=True)
@@ -207,7 +208,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     cost = 10*cost_E + 100*cost_I
 
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
-    simulator.mpc.set_rterm(u1=rterm_u1, u3=rterm_u3)
+    simulator.mpc.set_rterm(u1=rterm_u1, u2=rterm_u2, u3=rterm_u3)
 
     # State bounds
     eps = 1e-6
@@ -222,8 +223,8 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['upper','_u','u1'] = 0.9
     simulator.mpc.bounds['lower','_u','u3'] = 0.0
     simulator.mpc.bounds['upper','_u','u3'] = 0.5
-    simulator.mpc.bounds['lower','_u','time'] = 0.0
-    simulator.mpc.bounds['upper','_u','time'] = tsim_length
+    simulator.mpc.bounds['lower','_u','u2'] = 0.0
+    simulator.mpc.bounds['upper','_u','u2'] = 0.6
 
     # Run simulation (NOTE: simulator automatically supplies time to f)
     t_sim, x_sim, u_sim, y_sim = simulator.simulate(
