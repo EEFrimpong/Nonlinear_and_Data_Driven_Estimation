@@ -11,11 +11,11 @@ import pybounds
 mu = 0.02 / 365      # Natural mortality rate per day (2% per year)
 sigma_default = 1.0 / 5.2    # Default progression rate from E to I (5.2 days incubation period)
 gamma = 1.0 / 10.0   # Recovery rate (10 days infectious period)
-N = 10000000          # Total population
+N = 1000000          # Total population
 
 # PARAMETERS FOR SEASONAL BETA_EFF (structure parameters)
-beta0_default = 0.2   # baseline transmission
-epsilon_default = 0.1  # seasonal amplitude
+beta0_default = 0.5   # baseline transmission
+epsilon_default = 0.2  # seasonal amplitude
 T_default = 365        # seasonal period
 
 ############################################################################################
@@ -176,7 +176,7 @@ class H(object):
         recoveries     = (gamma + u3) I
         """
         if return_measurement_names:
-            return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
+            return ['I_measured', 'R_measured',
                     'new_infections', 'progressions', 'recoveries']
 
         S        = x_vec[0]
@@ -193,7 +193,7 @@ class H(object):
         progress   = sigma * E
         recoveries = (self.gamma + u3) * I
 
-        return np.array([S, E, I, R, new_inf, progress, recoveries])
+        return np.array([I, R, new_inf, progress, recoveries])
 
 
 ############################################################################################
