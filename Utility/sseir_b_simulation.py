@@ -1,256 +1,193 @@
+# ===============================================================
+# SEASONAL-BETA SEIR MODEL WITH MULTIPLE MEASUREMENTS + MPC
+# ===============================================================
+
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.integrate import odeint
-import scipy.optimize
-from scipy import interpolate
-
 import pybounds
 
-###############################################################################
-# Global SEIR parameters
-###############################################################################
-mu    = 0.02 / 365      # Natural mortality rate per day (2% per year)
-sigma = 1.0 / 5.2       # Progression rate from E to I (5.2 days incubation period)
-gamma = 1.0 / 10.0      # Recovery rate (10 days infectious period)
-N     = 10_000_000       # Total population
+###############################################################
+# GLOBAL PARAMETERS
+###############################################################
+mu = 0.02 / 365
+sigma = 1 / 5.2
+gamma = 1 / 10
+N = 10_000_000
 
-###############################################################################
-# Dynamics: F class
-###############################################################################
+beta0_default = 0.5
+epsilon_default = 0.2
+T_default = 365
+
+
+###############################################################
+# 1. SEIR DYNAMICS f(x, u)
+###############################################################
 class F(object):
-    """
-    SEIR model with control and beta as a state:
-        x = [S, E, I, R, beta]
+    def __init__(self,
+                 mu=mu,
+                 sigma=sigma,
+                 gamma=gamma,
+                 N=N,
+                 beta0=beta0_default,
+                 epsilon=epsilon_default,
+                 T=T_default):
 
-    Controls:
-        u = [u1, u2]
-        u1: prevention/social distancing (0–1, reduces transmission)
-        u2: vaccination
-    """
-    def __init__(self, mu=mu, sigma=sigma, gamma=gamma, N=N):
-        self.mu    = mu
+        self.mu = mu
         self.sigma = sigma
         self.gamma = gamma
-        self.N     = N
+        self.N = N
+
+        self.beta0 = beta0
+        self.epsilon = epsilon
+        self.T = T
+
+    def __call__(self, x_vec, u_vec, return_state_names=False):
+        return self.f(x_vec, u_vec, return_state_names)
 
     def f(self, x_vec, u_vec, return_state_names=False):
+
         if return_state_names:
-            # Must match len(x_vec)
-            return ['S', 'E', 'I', 'R', 'beta']
+            return ['S', 'E', 'I', 'R', 'beta_dummy']
 
-        # unpack state
-        S    = x_vec[0]
-        E    = x_vec[1]
-        I    = x_vec[2]
-        R    = x_vec[3]
-        beta = x_vec[4]
+        S, E, I, R, beta_dummy = x_vec
+        u1, u3, t = u_vec
 
-        # controls
-        u1 = u_vec[0]  # prevention/social distancing
-        u2 = u_vec[1]  # vaccination
-        
-        # incidence term
-        lambda_inf = beta * (1 - u1) * S * I / self.N
+        # Seasonal transmission
+        seasonal = 1 + self.epsilon * np.cos(2 * np.pi * t / self.T)
+        beta_eff = self.beta0 * seasonal * (1 - u1)
 
-        dSdt    = self.mu * self.N - lambda_inf - u2 * S - self.mu * S
-        dEdt    = lambda_inf - self.sigma * E - self.mu * E
-        dIdt    = self.sigma * E - self.gamma * I - self.mu * I
-        dRdt    = self.gamma * I + u2 * S - self.mu * R
-        dbetadt = 0.0  # constant beta as state
+        lambda_inf = beta_eff * S * I / self.N
 
-        return np.array([dSdt, dEdt, dIdt, dRdt, dbetadt])
+        dS = self.mu * self.N - lambda_inf - self.mu * S
+        dE = lambda_inf - self.sigma * E - self.mu * E
+        dI = self.sigma * E - (self.gamma + u3) * I - self.mu * I
+        dR = (self.gamma + u3) * I - self.mu * R
 
-###############################################################################
-# Measurement: H class
-###############################################################################
+        dBeta = 0.0
+        return np.array([dS, dE, dI, dR, dBeta])
+
+
+###############################################################
+# 2. MEASUREMENT FUNCTIONS H(x, u)
+###############################################################
 class H(object):
-    """
-    Measurement wrapper. Use as:
 
-        h_inc = H('h_incidence').h
-        y = h_inc(x, u)
+    def __init__(self, measurement_option,
+                 mu=mu, sigma=sigma, gamma=gamma, N=N,
+                 beta0=beta0_default, epsilon=epsilon_default, T=T_default):
 
-    Implemented measurements:
-        - h_incidence
-        - h_seir
-        - h_ir
-        - h_i
-        - h_ir_incidence
-        - h_incidence_recovery
-    """
-    def __init__(self, measurement_option, mu=mu, sigma=sigma, gamma=gamma, N=N):
         self.measurement_option = measurement_option
-        self.mu    = mu
+        self.mu = mu
         self.sigma = sigma
         self.gamma = gamma
-        self.N     = N
+        self.N = N
+
+        self.beta0 = beta0
+        self.epsilon = epsilon
+        self.T = T
+
+    def __call__(self, x_vec, u_vec, return_measurement_names=False):
+        return self.h(x_vec, u_vec, return_measurement_names)
 
     def h(self, x_vec, u_vec, return_measurement_names=False):
-        h_func = getattr(self, self.measurement_option)
-        return h_func(x_vec, u_vec, return_measurement_names=return_measurement_names)
+        func = getattr(self, self.measurement_option)
+        return func(x_vec, u_vec, return_measurement_names)
 
-    # ---------------------------------------------------------------------
-    # h_i: just I(t)
-    # ---------------------------------------------------------------------
-    def h_i(self, x_vec, u_vec, return_measurement_names=False):
+    # helper
+    def _beta_eff(self, x_vec, u_vec):
+        S,E,I,R,b = x_vec
+        u1, u3, t = u_vec
+        seasonal = 1 + self.epsilon * np.cos(2*np.pi*t/self.T)
+        return self.beta0 * seasonal * (1 - u1)
+
+    # ---------------- MEASUREMENTS ------------------
+
+    def h_ir_newcases(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
-            return ['I']
+            return ['I_measured', 'R_measured', 'new_infections']
+        S,E,I,R,b = x_vec
+        beta_eff = self._beta_eff(x_vec, u_vec)
+        new_inf = beta_eff * S * I / self.N
+        return np.array([I, R, new_inf])
 
-        I = x_vec[2]
-        return np.array([I])
-
-    # ---------------------------------------------------------------------
-    # h_ir: I(t), R(t)
-    # ---------------------------------------------------------------------
-    def h_ir(self, x_vec, u_vec, return_measurement_names=False):
+    def h_reported_cases(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
-            return ['I', 'R']
+            return ['I_reported']
+        return np.array([x_vec[2]])
 
-        I = x_vec[2]
-        R = x_vec[3]
-        return np.array([I, R])
-
-    # ---------------------------------------------------------------------
-    # h_seir: S, E, I, R (no beta)
-    # ---------------------------------------------------------------------
-    def h_seir(self, x_vec, u_vec, return_measurement_names=False):
-        if return_measurement_names:
-            return ['S', 'E', 'I', 'R']
-
-        S = x_vec[0]
-        E = x_vec[1]
-        I = x_vec[2]
-        R = x_vec[3]
-        return np.array([S, E, I, R])
-
-    # ---------------------------------------------------------------------
-    # h_incidence: incidence only (new infections per unit time)
-    #             = beta (1 - u1) S I / N
-    # ---------------------------------------------------------------------
     def h_incidence(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
-            return ['incidence']
+            return ['I_reported', 'new_cases']
+        S,E,I,R,b = x_vec
+        beta_eff = self._beta_eff(x_vec, u_vec)
+        return np.array([I, beta_eff*S*I/self.N])
 
-        S    = x_vec[0]
-        I    = x_vec[2]
-        beta = x_vec[4]
-        u1   = u_vec[0]
-
-        incidence = beta * (1 - u1) * S * I / self.N
-        return np.array([incidence])
-    
-    # ---------------------------------------------------------------------
-    # h_ir_incidence: [I, R, incidence]
-    # ---------------------------------------------------------------------
-    def h_ir_incidence(self, x_vec, u_vec, return_measurement_names=False):
+    def h_seir(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
-            return ['I', 'R', 'incidence']
+            return ['S','E','I','R']
+        return np.array(x_vec[:4])
 
-        I = x_vec[2]
-        R = x_vec[3]
-        S    = x_vec[0]
-        beta = x_vec[4]
-        u1   = u_vec[0]
-
-        incidence = beta * (1 - u1) * S * I / self.N
-        return np.array([I, R, incidence])
-
-    # ---------------------------------------------------------------------
-    # h_incidence_recovery: [incidence, recovery_flow]
-    #   incidence = beta (1 - u1) S I / N
-    #   recovery  = gamma * I + u2 * S
-    # ---------------------------------------------------------------------
-    def h_incidence_recovery(self, x_vec, u_vec, return_measurement_names=False):
+    def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names:
-            return ['incidence', 'recovery']
+            return ['S','E','I','R','beta_dummy']
+        return np.array(x_vec)
 
-        S    = x_vec[0]
-        I    = x_vec[2]
-        beta = x_vec[4]
-        u1   = u_vec[0]
-        u2   = u_vec[1]
+    def h_with_flows(self, x_vec, u_vec, return_measurement_names=False):
+        if return_measurement_names:
+            return ['S','E','I','R','new_infections','progressions','recoveries']
+        S,E,I,R,b = x_vec
+        beta_eff = self._beta_eff(x_vec, u_vec)
+        new_inf = beta_eff*S*I/self.N
+        prog = self.sigma*E
+        rec  = (self.gamma+u_vec[1])*I
+        return np.array([S,E,I,R,new_inf,prog,rec])
 
-        incidence = beta * (1 - u1) * S * I / self.N
-        recovery  = self.gamma * I + u2 * S
 
-        return np.array([incidence, recovery])
-
-###############################################################################
-# SEIR simulation with MPC (pybounds)
-###############################################################################
-def simulate_seir(f,
-                  h,
-                  tsim_length=365,
-                  dt=1.0,
+###############################################################
+# 3. MPC SIMULATOR (FIXED)
+###############################################################
+def simulate_seir(f, h,
+                  tsim_length=365, dt=1.0,
                   measurement_names=None,
                   setpoint=None,
                   rterm_u1=1e-4,
-                  rterm_u2=1e-4,
+                  rterm_u3=1e-4,
                   x0=None,
                   measurement_noise_stds=None):
-    """
-    f : callable
-        Dynamics function: f(x_vec, u_vec, return_state_names=False)
-    h : callable
-        Measurement function: h(x_vec, u_vec, return_measurement_names=False)
 
-    This matches usage in the Colab notebook:
-        f = seiru1u2_simulation.F().f
-        h = seiru1u2_simulation.H('h_ir').h
-        simulate_seir(f, h, ...)
-    """
+    # initial conditions
+    if x0 is None:
+        S0 = 0.90*N
+        E0 = 0.01*N
+        I0 = 0.01*N
+        R0 = N - S0 - E0 - I0
+        beta0 = beta0_default
+        x0 = np.array([S0,E0,I0,R0,beta0])
 
-    # ------------------------------------------------------------------
-    # State names and input names
-    # ------------------------------------------------------------------
     state_names = f(None, None, return_state_names=True)
-    input_names = ['u1', 'u2']
+    input_names = ['u1','u3','time']
 
-    # ------------------------------------------------------------------
-    # Measurement names
-    # ------------------------------------------------------------------
     if measurement_names is None:
         measurement_names = h(None, None, return_measurement_names=True)
 
-    # ------------------------------------------------------------------
-    # Initial conditions
-    # ------------------------------------------------------------------
-    if x0 is None:
-        S0    = 0.90 * N
-        E0    = 0.05 * N
-        I0    = 0.04 * N
-        R0    = N - S0 - E0 - I0
-        beta0 = 0.5
-        x0    = np.array([S0, E0, I0, R0, beta0])
+    simulator = pybounds.Simulator(
+        f, h, dt=dt,
+        state_names=state_names,
+        input_names=input_names,
+        measurement_names=measurement_names,
+        mpc_horizon=int(10/dt)
+    )
 
-    # ------------------------------------------------------------------
-    # Build simulator
-    # ------------------------------------------------------------------
-    simulator = pybounds.Simulator(f,
-                                   h,
-                                   dt=dt,
-                                   state_names=state_names,
-                                   input_names=input_names,
-                                   measurement_names=measurement_names,
-                                   mpc_horizon=int(10 / dt))
-
-    # Optional measurement noise
     if measurement_noise_stds is not None:
-        noise_std_array = []
-        for name in measurement_names:
-            noise_std_array.append(measurement_noise_stds.get(name, 0.0))
-        simulator.measurement_noise_std = np.array(noise_std_array)
+        simulator.measurement_noise_std = np.array([
+            measurement_noise_stds.get(name, 0.0)
+            for name in measurement_names
+        ])
 
-    # ------------------------------------------------------------------
-    # Time grid
-    # ------------------------------------------------------------------
-    tsim = np.arange(0, tsim_length, step=dt)
+    tsim = np.arange(0, tsim_length, dt)
 
-    # ------------------------------------------------------------------
-    # Setpoint - ONLY for E and I (used in cost function)
-    # ------------------------------------------------------------------
+    # FIXED: Only create setpoints for E and I (used in cost function)
     if setpoint is None:
-        # Default: hold E and I near their initial values
         setpoint = {}
         if 'E' in state_names:
             idx_E = state_names.index('E')
@@ -258,8 +195,8 @@ def simulate_seir(f,
         if 'I' in state_names:
             idx_I = state_names.index('I')
             setpoint['I'] = np.ones_like(tsim) * x0[idx_I]
-
-    # Process setpoint - ONLY E and I
+    
+    # FIXED: Only process E and I setpoints
     setpoint_processed = {}
     for key in ['E', 'I']:
         if key in setpoint and setpoint[key] is not None:
@@ -267,111 +204,119 @@ def simulate_seir(f,
             if arr.ndim == 0:  # scalar -> broadcast
                 arr = np.ones_like(tsim) * float(arr)
             elif arr.shape[0] != tsim.shape[0]:
-                # broadcast / trim to match tsim length
                 arr = np.resize(arr, tsim.shape[0])
             setpoint_processed[key] = arr
         elif key in state_names:
-            # if missing, just hold at initial value
             idx = state_names.index(key)
             setpoint_processed[key] = np.ones_like(tsim) * x0[idx]
 
     simulator.update_dict(setpoint_processed, name='setpoint')
 
-    # ------------------------------------------------------------------
-    # Cost function: penalize E and I deviations from setpoint
-    # ------------------------------------------------------------------
-    cost = 0
-    if 'E' in state_names:
-        cost += 10 * (simulator.model.x['E'] - simulator.model.tvp['E_set']) ** 2
-    if 'I' in state_names:
-        cost += 100 * (simulator.model.x['I'] - simulator.model.tvp['I_set']) ** 2
+    # cost
+    cost = 10*(simulator.model.x['E'] - simulator.model.tvp['E_set'])**2 \
+         + 100*(simulator.model.x['I'] - simulator.model.tvp['I_set'])**2
 
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
+    simulator.mpc.set_rterm(u1=rterm_u1, u3=rterm_u3)
 
-    # Control penalties - FIXED: use u2 instead of u3
-    simulator.mpc.set_rterm(u1=rterm_u1, u2=rterm_u2)
-
-    # ------------------------------------------------------------------
-    # Bounds
-    # ------------------------------------------------------------------
+    # bounds
     eps = 1e-6
+    for v in ['S','E','I','R']:
+        simulator.mpc.bounds['lower','_x',v] = eps
+        simulator.mpc.bounds['upper','_x',v] = N
+    simulator.mpc.bounds['lower','_x','beta_dummy'] = 0.1
+    simulator.mpc.bounds['upper','_x','beta_dummy'] = 2.0
 
-    if 'S' in state_names:
-        simulator.mpc.bounds['lower', '_x', 'S'] = eps
-        simulator.mpc.bounds['upper', '_x', 'S'] = N
-    if 'E' in state_names:
-        simulator.mpc.bounds['lower', '_x', 'E'] = eps
-        simulator.mpc.bounds['upper', '_x', 'E'] = N
-    if 'I' in state_names:
-        simulator.mpc.bounds['lower', '_x', 'I'] = eps
-        simulator.mpc.bounds['upper', '_x', 'I'] = N
-    if 'R' in state_names:
-        simulator.mpc.bounds['lower', '_x', 'R'] = eps
-        simulator.mpc.bounds['upper', '_x', 'R'] = N
-    if 'beta' in state_names:
-        simulator.mpc.bounds['lower', '_x', 'beta'] = 0.1
-        simulator.mpc.bounds['upper', '_x', 'beta'] = 2.0
+    simulator.mpc.bounds['lower','_u','u1'] = 0.0
+    simulator.mpc.bounds['upper','_u','u1'] = 0.9
+    simulator.mpc.bounds['lower','_u','u3'] = 0.0
+    simulator.mpc.bounds['upper','_u','u3'] = 0.5
 
-    # Controls
-    simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
-    simulator.mpc.bounds['upper', '_u', 'u1'] = 0.9
-    simulator.mpc.bounds['lower', '_u', 'u2'] = 0.0
-    simulator.mpc.bounds['upper', '_u', 'u2'] = 0.5
+    simulator.mpc.bounds['lower','_u','time'] = 0.0
+    simulator.mpc.bounds['upper','_u','time'] = tsim_length
 
-    # ------------------------------------------------------------------
-    # Simulate with MPC
-    # ------------------------------------------------------------------
-    t_sim, x_sim, u_sim, y_sim = simulator.simulate(x0=x0,
-                                                    u=None,
-                                                    mpc=True,
-                                                    return_full_output=True)
+    return simulator.simulate(
+        x0=x0,
+        u=None,
+        mpc=True,
+        return_full_output=True
+    )
 
-    return t_sim, x_sim, u_sim, y_sim, simulator
 
 ###############################################################################
-# Quick self-test (optional)
+# Quick self-test
 ###############################################################################
 if __name__ == "__main__":
-    # Dynamics and measurement
     f = F().f
-    h = H('h_ir').h
-
-    t_sim, x_sim, u_sim, y_sim, simulator = simulate_seir(f, h, tsim_length=200, dt=1.0)
-
-    # simple plot: infectious over time
-    plt.figure(figsize=(12, 8))
+    h = H('h_ir_newcases').h
     
-    plt.subplot(2, 2, 1)
-    plt.plot(t_sim, x_sim['I'])
-    plt.xlabel("Time (days)")
-    plt.ylabel("Infectious I(t)")
-    plt.title("Infectious Individuals")
-    plt.grid(True)
+    measurement_noise_stds = {
+        'I_measured': 6000,
+        'R_measured': 5000,
+        'new_infections': 4000
+    }
     
-    plt.subplot(2, 2, 2)
+    t_sim, x_sim, u_sim, y_sim = simulate_seir(
+        f,
+        h,
+        tsim_length=365,
+        dt=1.0,
+        measurement_noise_stds=measurement_noise_stds
+    )
+    
+    # Plot results
+    plt.figure(figsize=(14, 10))
+    
+    plt.subplot(3, 2, 1)
+    plt.plot(t_sim, x_sim['S'], label='S')
     plt.plot(t_sim, x_sim['E'], label='E')
     plt.plot(t_sim, x_sim['I'], label='I')
     plt.plot(t_sim, x_sim['R'], label='R')
-    plt.xlabel("Time (days)")
-    plt.ylabel("Population")
-    plt.title("E, I, R Compartments")
+    plt.xlabel('Time (days)')
+    plt.ylabel('Population')
+    plt.title('SEIR Compartments')
     plt.legend()
     plt.grid(True)
     
-    plt.subplot(2, 2, 3)
+    plt.subplot(3, 2, 2)
+    plt.plot(t_sim, x_sim['I'])
+    plt.xlabel('Time (days)')
+    plt.ylabel('Infectious')
+    plt.title('Infectious Population')
+    plt.grid(True)
+    
+    plt.subplot(3, 2, 3)
     plt.plot(t_sim, u_sim['u1'], label='u1 (prevention)')
-    plt.plot(t_sim, u_sim['u2'], label='u2 (vaccination)')
-    plt.xlabel("Time (days)")
-    plt.ylabel("Control")
-    plt.title("Control Inputs")
+    plt.plot(t_sim, u_sim['u3'], label='u3 (treatment)')
+    plt.xlabel('Time (days)')
+    plt.ylabel('Control')
+    plt.title('Control Inputs')
     plt.legend()
     plt.grid(True)
     
-    plt.subplot(2, 2, 4)
-    plt.plot(t_sim, x_sim['S'])
-    plt.xlabel("Time (days)")
-    plt.ylabel("Susceptible S(t)")
-    plt.title("Susceptible Individuals")
+    plt.subplot(3, 2, 4)
+    plt.plot(t_sim, y_sim['I_measured'], label='I measured (noisy)')
+    plt.plot(t_sim, x_sim['I'], '--', label='I true', alpha=0.7)
+    plt.xlabel('Time (days)')
+    plt.ylabel('Infectious')
+    plt.title('Measured vs True I')
+    plt.legend()
+    plt.grid(True)
+    
+    plt.subplot(3, 2, 5)
+    plt.plot(t_sim, y_sim['new_infections'])
+    plt.xlabel('Time (days)')
+    plt.ylabel('New Infections/day')
+    plt.title('Daily New Infections')
+    plt.grid(True)
+    
+    plt.subplot(3, 2, 6)
+    plt.plot(t_sim, y_sim['R_measured'], label='R measured (noisy)')
+    plt.plot(t_sim, x_sim['R'], '--', label='R true', alpha=0.7)
+    plt.xlabel('Time (days)')
+    plt.ylabel('Recovered')
+    plt.title('Measured vs True R')
+    plt.legend()
     plt.grid(True)
     
     plt.tight_layout()
