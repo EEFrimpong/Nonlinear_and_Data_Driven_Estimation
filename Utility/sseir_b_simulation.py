@@ -186,17 +186,12 @@ def simulate_seir(f, h,
 
     tsim = np.arange(0, tsim_length, dt)
 
-    # -------------------------
-    # ONLY VALID TVPs: E_set, I_set
-    # -------------------------
     if setpoint is None:
-        E_set = 0.00005*N + (x0[1] - 0.00005*N)*np.exp(-tsim/80)
-        I_set = 0.0001*N  + (x0[2] - 0.0001*N)*np.exp(-tsim/100)
+        # Default: hold each state near its initial value (can be changed later)
+        setpoint = {}
+        for i, name in enumerate(state_names):
+            setpoint[name] = np.ones_like(tsim) * x0[i]
 
-        setpoint = {
-            'E_set': E_set,
-            'I_set': I_set
-        }
 
     simulator.update_dict(setpoint, name='setpoint')
 
