@@ -9,50 +9,58 @@ import pybounds
 # Set some global parameters
 ############################################################################################
 mu = 0.02 / 365      # Natural mortality rate per day (2% per year)
-sigma_default = 1.0 / 5.2    # Default progression rate from E to I
+sigma_default = 1.0 / 5.2    # Default progression rate from E to I (5.2 days incubation period)
 gamma = 1.0 / 10.0   # Recovery rate (10 days infectious period)
-N = 10000000          # Total population
+N = 1000000          # Total population
 
-# PARAMETERS FOR BETA_EFF (used as initial guess / prior)
-beta0_default = 0.5    # baseline transmission (initial beta_eff)
-epsilon_default = 0.2  # kept for reference if you later want seasonal structure
-T_default = 365        # kept for reference
+# PARAMETERS FOR SEASONAL BETA_EFF (structure parameters)
+beta0_default = 0.5    # baseline transmission
+epsilon_default = 0.2  # seasonal amplitude
+T_default = 365        # seasonal period
 
 ############################################################################################
 # Continuous time dynamics function
 ############################################################################################
 class F(object):
-    def __init__(self, mu=mu, gamma=gamma, N=N):
-        """Initialize with parameters stored as instance variables."""
+    def __init__(self, mu=mu, gamma=gamma, N=N,
+                 beta0=beta0_default, epsilon=epsilon_default, T=T_default):
+        """Initialize with parameters stored as instance variables"""
         self.mu = mu
         self.gamma = gamma
         self.N = N
 
+        # Seasonal beta parameters
+        self.beta0 = beta0
+        self.epsilon = epsilon
+        self.T = T
+
     def f(self, x_vec, u_vec, return_state_names=False):
         """
-        Continuous time dynamics function for SEIR model with control,
-        with beta_eff and sigma treated as STATES.
+        Continuous time dynamics function for SEIR model with control.
 
-        State vector:
-            x = [S, E, I, R, beta_eff, sigma]
+        States:
+            x = [S, E, I, R, beta_eff, sigma, t]
 
         Controls:
-            u_vec[0] = u1  (social distancing / transmission reduction)
-            u_vec[1] = u2  (vaccination rate S -> R)
-            u_vec[2] = u3  (treatment rate I -> R)
+            u1 = u_vec[0]   social distancing (transmission reduction)
+            u2 = u_vec[1]   vaccination (S -> R)
+            u3 = u_vec[2]   treatment (extra recovery of I)
 
-        Dynamics (conceptually):
+        Desired infection term:
+            beta_eff(t) * (1 - u1) * S I / N, where beta_eff has its own ODE.
 
-            dS/dt = μN - beta_eff * (1 - u1) * S I / N - u2 S - μS
-            dE/dt = beta_eff * (1 - u1) * S I / N - σ E - μE
-            dI/dt = σ E - (γ + u3) I - μI
-            dR/dt = (γ + u3) I + u2 S - μR
-            d(beta_eff)/dt = 0
-            dσ/dt = 0
+        Here:
+            dS/dt       = μN - beta_eff * (1 - u1) * S I / N - u2 S - μS
+            dE/dt       = beta_eff * (1 - u1) * S I / N - σ E - μE
+            dI/dt       = σ E - (γ + u3) I - μI
+            dR/dt       = (γ + u3) I + u2 S - μR
+            d beta_eff/dt = beta0 * (-ε * 2π/T) sin(2π t/T) (1 - u1)    [Option A]
+            dσ/dt       = 0
+            dt/dt       = 1
         """
 
         if return_state_names:
-            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma']
+            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma', 't']
 
         # Extract state variables
         S        = x_vec[0]
@@ -61,26 +69,37 @@ class F(object):
         R        = x_vec[3]
         beta_eff = x_vec[4]
         sigma    = x_vec[5]
+        t        = x_vec[6]
 
-        # Extract control inputs
-        u1 = u_vec[0]   # prevention/social distancing
-        u2 = u_vec[1]   # vaccination rate
-        u3 = u_vec[2]   # treatment rate
+        # Extract controls
+        u1 = u_vec[0]     # prevention / social distancing
+        u2 = u_vec[1]     # vaccination
+        u3 = u_vec[2]     # treatment
 
-        # Force of infection with beta_eff and control u1
+        # Force of infection using beta_eff and control u1
         lambda_inf = beta_eff * (1.0 - u1) * S * I / self.N
 
-        # SEIR dynamics with controls and sigma as a state
+        # SEIR equations with controls and sigma as a state
         dS_dt = self.mu * self.N - lambda_inf - u2 * S - self.mu * S
         dE_dt = lambda_inf - sigma * E - self.mu * E
         dI_dt = sigma * E - (self.gamma + u3) * I - self.mu * I
         dR_dt = (self.gamma + u3) * I + u2 * S - self.mu * R
 
-        # Parameter-states: constant in time (to be estimated/observed)
-        dbeta_dt  = 0.0
+        # Dynamics for beta_eff (Option A: only seasonal time dependence)
+        dbeta_dt = (
+            self.beta0
+            * (-self.epsilon) * (2.0 * np.pi / self.T)
+            * np.sin(2.0 * np.pi * t / self.T)
+            * (1.0 - u1)
+        )
+
+        # Sigma treated as slowly varying / constant parameter-state
         dsigma_dt = 0.0
 
-        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt, dsigma_dt])
+        # Time state
+        dt_dt = 1.0
+
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt, dsigma_dt, dt_dt])
 
 
 ############################################################################################
@@ -108,8 +127,8 @@ class H(object):
 
     def h_incidence(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement: y = [I, new_cases]^T,
-        where new_cases is the infection flow beta_eff (1 - u1) S I / N.
+        Measurement: y = [I, new_cases]^T
+        new_cases = beta_eff (1 - u1) S I / N
         """
         if return_measurement_names:
             return ['I_reported', 'new_cases']
@@ -122,26 +141,17 @@ class H(object):
         new_cases = beta_eff * (1.0 - u1) * S * I / self.N
         return np.array([I, new_cases])
 
-    def h_seir(self, x_vec, u_vec, return_measurement_names=False):
+    def h_ir(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement: y = [S, E, I, R]^T
         """
         if return_measurement_names:
-            return ['S_measured', 'E_measured', 'I_measured', 'R_measured']
-        return np.array([x_vec[0], x_vec[1], x_vec[2], x_vec[3]])
-
-    def h_sir(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [S, I, R]^T
-        """
-        if return_measurement_names:
-            return ['S_measured, 'I_measured', 'R_measured']
-        return np.array([x_vec[0], x_vec[2], x_vec[3]])
+            return ['I_measured', 'R_measured']
+        return np.array([x_vec[2], x_vec[3]])
 
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement: y = [S, E, I, R, beta_eff, sigma]^T
-        Full compartments plus parameter-states.
         """
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
@@ -156,10 +166,12 @@ class H(object):
 
     def h_with_flows(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement: y = [S,E,I,R,new_infections,progressions,recoveries]^T
-        - new_infections = beta_eff (1 - u1) S I / N
-        - progressions   = sigma E
-        - recoveries     = (gamma + u3) I
+        Measurement:
+            y = [S,E,I,R,new_infections,progressions,recoveries]^T
+
+        new_infections = beta_eff (1 - u1) S I / N
+        progressions   = sigma E
+        recoveries     = (gamma + u3) I
         """
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
@@ -183,22 +195,11 @@ class H(object):
 
 
 ############################################################################################
-# SEIR simulation with MPC (no time injected into u_vec)
+# SEIR simulation with MPC
 ############################################################################################
 def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
                   setpoint=None, rterm_u1=1e-4, rterm_u2=1e-4, rterm_u3=1e-4,
                   x0=None, measurement_noise_stds=None):
-    """
-    Simulate SEIR disease model with MPC control.
-
-    States:
-        [S, E, I, R, beta_eff, sigma]
-
-    Controls:
-        u1: prevention/social distancing
-        u2: vaccination
-        u3: treatment
-    """
 
     # Default initial conditions
     if x0 is None:
@@ -206,10 +207,13 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         E0 = 0.01 * N
         I0 = 0.01 * N
         R0 = N - S0 - E0 - I0
-        beta_eff0 = beta0_default      # initial guess for beta_eff
-        sigma0    = sigma_default      # initial guess for sigma
+        t0 = 0.0
 
-        x0 = np.array([S0, E0, I0, R0, beta_eff0, sigma0])
+        # initial beta_eff consistent with seasonal formula at t=0 and u1=0:
+        beta_eff0 = beta0_default * (1.0 + epsilon_default * np.cos(0.0))
+        sigma0    = sigma_default
+
+        x0 = np.array([S0, E0, I0, R0, beta_eff0, sigma0, t0])
 
     # State and input names
     state_names = f(None, None, return_state_names=True)
@@ -249,6 +253,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
         E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
 
+        # tvp keys become X_set internally in pybounds
         setpoint = {
             'S': np.zeros_like(tsim),
             'E': E_set,
@@ -260,7 +265,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
 
     simulator.update_dict(setpoint, name='setpoint')
 
-    # MPC cost: penalize E and I deviations from setpoint
+    # MPC cost (penalize E and I only)
     cost_E = (simulator.model.x['E'] - simulator.model.tvp['E_set'])**2
     cost_I = (simulator.model.x['I'] - simulator.model.tvp['I_set'])**2
     cost = 10.0 * cost_E + 100.0 * cost_I
@@ -281,11 +286,13 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['lower', '_x', 'R'] = eps
     simulator.mpc.bounds['upper', '_x', 'R'] = N
 
-    # Bounds for beta_eff and sigma as states
+    # Bounds for beta_eff, sigma, and t
     simulator.mpc.bounds['lower', '_x', 'beta_eff'] = 0.1
     simulator.mpc.bounds['upper', '_x', 'beta_eff'] = 2.0
-    simulator.mpc.bounds['lower', '_x', 'sigma'] = 1/30.0   # e.g. incubation up to 30 days
-    simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0      # up to 1/day
+    simulator.mpc.bounds['lower', '_x', 'sigma'] = 1.0 / 30.0   # incubation up to 30 days
+    simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0          # up to 1/day
+    simulator.mpc.bounds['lower', '_x', 't'] = 0.0
+    simulator.mpc.bounds['upper', '_x', 't'] = tsim_length + 10.0
 
     # Control bounds
     simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
