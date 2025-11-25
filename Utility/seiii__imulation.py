@@ -102,7 +102,7 @@ class F(object):
         dt_dt = 0.0
 
         # Cumulative infections
-        dC_dt = 0#lambda_inf
+        dC_dt = lambda_inf
 
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt,
                          dbeta_dt, dsigma_dt, dt_dt, dC_dt])
