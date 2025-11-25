@@ -14,7 +14,7 @@ gamma = 1.0 / 10.0         # Recovery rate (10 days infectious period)
 N = 1_000_000              # Total population
 
 # PARAMETERS FOR SEASONAL BETA_EFF (structure parameters)
-beta0_default = 0.5        # baseline transmission
+beta0_default = 0.1        # baseline transmission
 epsilon_default = 0.7      # seasonal amplitude
 T_default = 365          # seasonal period
 
