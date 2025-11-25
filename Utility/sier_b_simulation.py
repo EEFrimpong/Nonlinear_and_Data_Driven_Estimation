@@ -186,17 +186,13 @@ class H(object):
 ############################################################################################
 # SEIR simulation with MPC (pybounds)
 ############################################################################################
+############################################################################################
+# SEIR simulation with MPC (pybounds)  — FIXED VERSION
+############################################################################################
 def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
                   setpoint=None,
                   rterm_u1=1e-4, rterm_u2=1e-4, rterm_u3=1e-4,
                   x0=None, measurement_noise_stds=None):
-    """
-    f : dynamics, f(x_vec, u_vec, return_state_names=False)
-    h : measurement, h(x_vec, u_vec, return_measurement_names=False)
-
-    Returns:
-        t_sim, x_sim, u_sim, y_sim, simulator
-    """
 
     # ------------------- initial conditions -------------------
     if x0 is None:
@@ -219,32 +215,24 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         measurement_names = h(None, None, return_measurement_names=True)
 
     # ------------------- build simulator -------------------
-
-                      
     simulator = pybounds.Simulator(
-    f, h,
-    dt=dt,
-    state_names=state_names,
-    input_names=input_names,
-    measurement_names=measurement_names,
-    mpc_horizon=int(10 / dt),
-    tvp_names=['E_set', 'I_set']  # Declare TVPs here
-)
+        f, h,
+        dt=dt,
+        state_names=state_names,
+        input_names=input_names,
+        measurement_names=measurement_names,
+        mpc_horizon=int(10 / dt)
+    )
 
-# noise
-if measurement_noise_stds is not None:
-    simulator.measurement_noise_std = np.array([
-        measurement_noise_stds.get(m, 0.0) for m in measurement_names
-    ])
+    # ------------------- measurement noise -------------------
+    if measurement_noise_stds is not None:
+        simulator.measurement_noise_std = np.array([
+            measurement_noise_stds.get(m, 0.0) for m in measurement_names
+        ])
 
-tsim = np.arange(0, tsim_length, step=dt)
+    tsim = np.arange(0, tsim_length, step=dt)
 
-# ------------------- create TVPs E_set, I_set -------------------
-# Now these can be accessed since they were declared
-E_set_tvp = simulator.model.tvp['E_set']
-I_set_tvp = simulator.model.tvp['I_set']
-
-    # ------------------- default setpoints (trajectories) -------------------
+    # ------------------- default setpoints (AUTO TVP like working code) -------------------
     if setpoint is None:
         I_initial = x0[2]
         E_initial = x0[1]
@@ -255,22 +243,28 @@ I_set_tvp = simulator.model.tvp['I_set']
         I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
         E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
 
-        # keys must match tvp names
+        # IMPORTANT: keys must match state names to auto-create tvps:
         setpoint = {
-            'E_set': E_set,
-            'I_set': I_set
+            'S': np.zeros_like(tsim),
+            'E': E_set,
+            'I': I_set,
+            'R': np.zeros_like(tsim),
+            'beta_eff': beta0_default * np.ones_like(tsim),
+            'sigma': sigma_default * np.ones_like(tsim),
+            't': tsim   # time
         }
 
+    # pybounds will auto-create S_set, E_set, I_set, etc.
     simulator.update_dict(setpoint, name='setpoint')
 
     # ------------------- cost function -------------------
-    cost_E = (simulator.model.x['E'] - E_set_tvp)**2
-    cost_I = (simulator.model.x['I'] - I_set_tvp)**2
-    cost = 10.0 * cost_E + 100.0 * cost_I
-
+    cost = (
+        10.0  * (simulator.model.x['E'] - simulator.model.tvp['E_set'])**2 +
+        100.0 * (simulator.model.x['I'] - simulator.model.tvp['I_set'])**2
+    )
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
 
-    # input regularization
+    # input penalties
     simulator.mpc.set_rterm(u1=rterm_u1, u2=rterm_u2, u3=rterm_u3)
 
     # ------------------- bounds -------------------
@@ -301,5 +295,4 @@ I_set_tvp = simulator.model.tvp['I_set']
         mpc=True,
         return_full_output=True
     )
-
     return t_sim, x_sim, u_sim, y_sim, simulator
