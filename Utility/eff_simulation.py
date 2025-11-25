@@ -248,7 +248,7 @@ class H(object):
         u3 = u_vec[2]
         recov     = (self.gamma + u3) * I
         new_cases = beta * (u1) * S * I / self.N
-        return np.array([I, R, new_cases, recov])
+        return np.array([I, R, recov])
 
 
 ############################################################################################
