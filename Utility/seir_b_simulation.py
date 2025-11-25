@@ -244,8 +244,8 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.update_dict(setpoint, name='setpoint')
 
     # MPC cost: track E and I to their setpoints
-    cost_E = (simulator.model.x['E'] - simulator.model.tvp['E_set'])**2
-    cost_I = (simulator.model.x['I'] - simulator.model.tvp['I_set'])**2
+    cost_E = (simulator.model.x['E'] - simulator.model.tvp['E'])**2
+    cost_I = (simulator.model.x['I'] - simulator.model.tvp['I'])**2
     cost = 10 * cost_E + 100 * cost_I
 
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
