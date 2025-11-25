@@ -141,6 +141,22 @@ class H(object):
         new_cases = beta_eff * (1.0 - u1) * S * I / self.N
         return np.array([I, new_cases])
 
+    def h_irr(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement: y = [I, R]^T
+        """
+        if return_measurement_names:
+            return ['I_measured', 'R_measured', 'new_cases', 'recoveries']
+        I = x_vec[2]
+        R = x_vec[3]
+        u1 = u_vec[0]
+        u3 = u_vec[2]
+        S  = x_vec[0]
+        new_cases = beta_eff * (1.0 - u1) * S * I / self.N
+        recoveries = (self.gamma + u3) * I
+        return np.array([I, R, new_cases, recoveries])
+
+ 
     def h_ir(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement: y = [I, R]^T
