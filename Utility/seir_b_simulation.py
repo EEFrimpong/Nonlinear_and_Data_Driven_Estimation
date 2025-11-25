@@ -235,8 +235,8 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
 
         setpoint = {
             'S': np.zeros_like(tsim),
-            'E': E_set,
-            'I': I_set,
+            'E': E,
+            'I': I,
             'R': np.zeros_like(tsim),
             'beta_dummy_set': np.ones_like(tsim) * beta0_default
         }
