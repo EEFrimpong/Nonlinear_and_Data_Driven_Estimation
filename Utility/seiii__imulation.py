@@ -16,7 +16,7 @@ N = 1_000_000              # Total population
 # PARAMETERS FOR SEASONAL BETA_EFF (structure parameters)
 beta0_default = 0.5        # baseline transmission
 epsilon_default = 0.2      # seasonal amplitude
-T_default = 150            # seasonal period
+T_default = 50           # seasonal period
 
 ############################################################################################
 # Continuous time dynamics function
