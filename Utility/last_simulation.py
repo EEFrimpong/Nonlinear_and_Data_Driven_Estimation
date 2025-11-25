@@ -1,18 +1,27 @@
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import odeint
+import scipy.optimize
+from scipy import interpolate
+import pybounds
 
 ############################################################################################
-# Global parameters (tweak as you like)
+# Set some global parameters
 ############################################################################################
-mu     = 0.02 / 365      # Natural mortality rate per day (2% per year)
-sigma  = 1.0 / 5.2       # Progression rate from E to I
-gamma  = 1.0 / 10.0      # Recovery rate
-N      = 1_000_000       # Total population
+mu = 0.02 / 365            # Natural mortality rate per day (2% per year)
+sigma_default = 1.0 / 5.2  # Progression rate from E to I (5.2 days incubation period)
+gamma = 1.0 / 10.0         # Recovery rate (10 days infectious period)
+N = 1_000_000              # Total population
+
+# For this version, beta is a STATE, not seasonal
+beta0_default = 0.3        # initial beta state value (can tune)
 
 ############################################################################################
-# Continuous time dynamics function for [S, E, I, R, beta]
+# Continuous time dynamics function
 ############################################################################################
 class F(object):
-    def __init__(self, mu=mu, sigma=sigma, gamma=gamma, N=N):
+    def __init__(self, mu=mu, sigma=sigma_default, gamma=gamma, N=N,
+                 beta0=beta0_default):
         """
         States:
             x = [S, E, I, R, beta]
@@ -22,7 +31,7 @@ class F(object):
             u2 = u_vec[1]   vaccination (S -> R)
             u3 = u_vec[2]   treatment (extra recovery of I)
 
-        ODEs (your model):
+        ODEs:
             dS/dt    = mu N - beta (1 - u1) S I / N - u2 S - mu S
             dE/dt    = beta (1 - u1) S I / N - sigma E - mu E
             dI/dt    = sigma E - (gamma + u3) I - mu I
@@ -33,38 +42,44 @@ class F(object):
         self.sigma = sigma
         self.gamma = gamma
         self.N = N
+        self.beta0 = beta0
 
     def f(self, x_vec, u_vec, return_state_names=False):
+        """
+        Continuous-time dynamics for the 5-state SEIR-beta model.
+        """
         if return_state_names:
             return ['S', 'E', 'I', 'R', 'beta']
 
-        # Extract states
+        # Extract state variables
         S, E, I, R, beta = x_vec
 
         # Extract controls
-        u1 = float(u_vec[0])
-        u2 = float(u_vec[1])
-        u3 = float(u_vec[2])
+        u1 = float(u_vec[0])   # prevention / social distancing
+        u2 = float(u_vec[1])   # vaccination
+        u3 = float(u_vec[2])   # treatment
 
         # Force of infection
         lambda_inf = beta * (1.0 - u1) * S * I / self.N
 
-        # Dynamics (exactly your equations)
+        # SEIR equations with controls (your model)
         dS_dt    = self.mu * self.N - lambda_inf - u2 * S - self.mu * S
         dE_dt    = lambda_inf - self.sigma * E - self.mu * E
         dI_dt    = self.sigma * E - (self.gamma + u3) * I - self.mu * I
         dR_dt    = (self.gamma + u3) * I + u2 * S - self.mu * R
+
+        # beta is constant in this version (can later add dynamics if you like)
         dbeta_dt = 0.0
 
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt])
 
 
 ############################################################################################
-# Continuous time measurement functions (same structure as your H class)
+# Continuous time measurement functions (similar structure to your good code)
 ############################################################################################
 class H(object):
-    def __init__(self, measurement_option,
-                 mu=mu, sigma=sigma, gamma=gamma, N=N):
+    def __init__(self, measurement_option, mu=mu, sigma=sigma_default,
+                 gamma=gamma, N=N):
         """
         measurement_option: string naming which h_* function to use.
         """
@@ -241,8 +256,8 @@ class H(object):
     # -------------------------------------------------------------------------
     def h_with_flows(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement:
-            y = [S, E, I, R, new_inf, prog, recov]^T
+            Measurement:
+                y = [S, E, I, R, new_inf, prog, recov]^T
         """
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
@@ -265,7 +280,7 @@ class H(object):
 
     # -------------------------------------------------------------------------
     # 11. h_observable: I, R, new_cases, recov
-    # (adapted: no cumulative C in this simpler model)
+    # (no C state in this 5-state version)
     # -------------------------------------------------------------------------
     def h_observable(self, x_vec, u_vec, return_measurement_names=False):
         """
@@ -289,18 +304,109 @@ class H(object):
 
 
 ############################################################################################
-# Tiny usage example (you can plug this into your pybounds simulator)
+# SEIR simulation with MPC (same structure as your good code, but 5 states)
 ############################################################################################
-if __name__ == "__main__":
-    f = F()
-    h = H(measurement_option='h_with_flows')
+def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
+                  setpoint=None, rterm_u1=1e-4, rterm_u2=1e-4, rterm_u3=1e-4,
+                  x0=None, measurement_noise_stds=None):
 
-    # Example state and control
-    x_example = np.array([0.7*N, 0.05*N, 0.01*N, 0.24*N, 0.3])
-    u_example = np.array([0.2, 0.1, 0.0])
+    # Default initial conditions
+    if x0 is None:
+        S0 = 0.70 * N
+        E0 = 0.05 * N
+        I0 = 0.05 * N
+        R0 = N - S0 - E0 - I0
+        beta0 = beta0_default
 
-    dx = f.f(x_example, u_example)
-    y  = h.h(x_example, u_example)
+        x0 = np.array([S0, E0, I0, R0, beta0])
 
-    print("dx/dt =", dx)
-    print("measurement y =", y)
+    # State and input names
+    state_names = f(None, None, return_state_names=True)
+    input_names = ['u1', 'u2', 'u3']
+
+    # Measurement names
+    if measurement_names is None:
+        measurement_names = h(None, None, return_measurement_names=True)
+
+    # Initialize simulator
+    simulator = pybounds.Simulator(
+        f, h, dt=dt,
+        state_names=state_names,
+        input_names=input_names,
+        measurement_names=measurement_names,
+        mpc_horizon=int(10/dt)
+    )
+
+    # Add measurement noise if provided
+    if measurement_noise_stds is not None:
+        noise_std_array = []
+        for meas in measurement_names:
+            noise_std_array.append(measurement_noise_stds.get(meas, 0.0))
+        simulator.measurement_noise_std = np.array(noise_std_array)
+
+    # Time grid
+    tsim = np.arange(0, tsim_length, step=dt)
+
+    # Default setpoint (only on E and I; others zero or nominal)
+    if setpoint is None:
+        I_initial = x0[2]
+        E_initial = x0[1]
+
+        I_target = 0.0001 * N
+        E_target = 0.00005 * N
+
+        I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
+        E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
+
+        setpoint = {
+            'S': np.zeros_like(tsim),
+            'E': E_set,
+            'I': I_set,
+            'R': np.zeros_like(tsim),
+            'beta': beta0_default * np.ones_like(tsim)
+        }
+
+    simulator.update_dict(setpoint, name='setpoint')
+
+    # MPC cost (penalize E and I only)
+    cost_E = (simulator.model.x['E'] - simulator.model.tvp['E_set'])**2
+    cost_I = (simulator.model.x['I'] - simulator.model.tvp['I_set'])**2
+    cost = 10.0 * cost_E + 100.0 * cost_I
+
+    simulator.mpc.set_objective(mterm=cost, lterm=cost)
+
+    # Input penalties
+    simulator.mpc.set_rterm(u1=rterm_u1, u2=rterm_u2, u3=rterm_u3)
+
+    # State bounds
+    eps = 1e-6
+    simulator.mpc.bounds['lower', '_x', 'S'] = eps
+    simulator.mpc.bounds['upper', '_x', 'S'] = N
+    simulator.mpc.bounds['lower', '_x', 'E'] = eps
+    simulator.mpc.bounds['upper', '_x', 'E'] = N
+    simulator.mpc.bounds['lower', '_x', 'I'] = eps
+    simulator.mpc.bounds['upper', '_x', 'I'] = N
+    simulator.mpc.bounds['lower', '_x', 'R'] = eps
+    simulator.mpc.bounds['upper', '_x', 'R'] = N
+
+    # Bounds for beta
+    simulator.mpc.bounds['lower', '_x', 'beta'] = 0.01
+    simulator.mpc.bounds['upper', '_x', 'beta'] = 2.0
+
+    # Control bounds
+    simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
+    simulator.mpc.bounds['upper', '_u', 'u1'] = 0.9
+    simulator.mpc.bounds['lower', '_u', 'u2'] = 0.0
+    simulator.mpc.bounds['upper', '_u', 'u2'] = 0.6
+    simulator.mpc.bounds['lower', '_u', 'u3'] = 0.0
+    simulator.mpc.bounds['upper', '_u', 'u3'] = 0.5
+
+    # Run simulation with MPC
+    t_sim, x_sim, u_sim, y_sim = simulator.simulate(
+        x0=x0,
+        u=None,
+        mpc=True,
+        return_full_output=True
+    )
+
+    return t_sim, x_sim, u_sim, y_sim, simulator
