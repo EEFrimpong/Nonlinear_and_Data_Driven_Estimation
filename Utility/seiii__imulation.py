@@ -57,7 +57,7 @@ class F(object):
             d(beta_eff)/dt = beta0 * (-ε * 2π/T) sin(2π t/T) (1 - u1)
             dσ/dt          = 0
             dt/dt          = 0
-            dC/dt          = 0#lambda_inf
+            dC/dt          = lambda_inf
         """
 
         if return_state_names:
@@ -320,7 +320,7 @@ class H(object):
         Measurement: y = [I, new_cases, C, beta_eff]^T
         """
         if return_measurement_names:
-            return ['I_measured', 'R_measured', 'new_cases', 'C_measured', 'beta_eff']
+            return ['I_measured', 'R_measured', 'new_cases', 'beta_eff']
 
         S        = x_vec[0]
         I        = x_vec[2]
@@ -335,7 +335,7 @@ class H(object):
         new_inf = beta_eff * (1.0 - u1) * S * I / self.N
 
         new_cases = beta_eff * (1.0 - u1) * S * I / self.N
-        return np.array([I, R, new_cases, C, beta_eff])
+        return np.array([I, R, new_cases, beta_eff])
 
 
 ############################################################################################
