@@ -6,7 +6,7 @@ from scipy import interpolate
 import pybounds
 
 ############################################################################################
-## Global Parameters 🌐
+## Global Parameters 
 ############################################################################################
 mu = 0.02 / 365            # Natural mortality rate per day (2% per year)
 sigma_default = 1.0 / 10.2 # Progression rate from E to I (constant)
@@ -19,7 +19,7 @@ beta0_default = 0.5        # Baseline transmission (initial beta)
 # State vector x = [S, E, I, R, beta] - Size 5
 
 ############################################################################################
-## Continuous Time Dynamics Function (F Class) 📈
+## Continuous Time Dynamics Function (F Class) 
 ############################################################################################
 class F(object):
     def __init__(self, mu=mu, gamma=gamma, N=N, sigma=sigma_default):
@@ -53,7 +53,7 @@ class F(object):
         u3 = u_vec[2]      # treatment (extra recovery of I)
 
         # Force of infection
-        lambda_inf = beta * (1.0 - u1) * S * I / self.N
+        lambda_inf = beta * (- u1) * S * I / self.N
 
         # ODEs based on the user's provided structure
         dS_dt = self.mu * self.N - lambda_inf - u2 * S - self.mu * S
