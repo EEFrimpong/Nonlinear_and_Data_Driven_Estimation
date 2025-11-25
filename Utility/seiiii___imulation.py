@@ -14,8 +14,8 @@ gamma = 1.0 / 10.0         # Recovery rate (10 days infectious period)
 N = 1_000_000              # Total population
 
 # PARAMETERS FOR SEASONAL BETA_EFF (structure parameters)
-beta0_default = 0.1        # baseline transmission
-epsilon_default = 0.7      # seasonal amplitude
+beta0_default = 0.5        # baseline transmission
+epsilon_default = 0.2     # seasonal amplitude
 T_default = 365          # seasonal period
 
 ############################################################################################
@@ -347,9 +347,9 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
 
     # Default initial conditions
     if x0 is None:
-        S0 = 0.90 * N
-        E0 = 0.01 * N
-        I0 = 0.01 * N
+        S0 = 0.70 * N
+        E0 = 0.05 * N
+        I0 = 0.05 * N
         R0 = N - S0 - E0 - I0
         t0 = 0.0
 
