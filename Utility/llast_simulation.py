@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+5-state SEIR + beta model with pybounds MPC, similar structure
+to the original "good" 8-state code, but states are:
+    x = [S, E, I, R, beta]
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
@@ -13,8 +20,7 @@ sigma_default = 1.0 / 5.2  # Progression rate from E to I (5.2 days incubation p
 gamma = 1.0 / 10.0         # Recovery rate (10 days infectious period)
 N = 1_000_000              # Total population
 
-# For this version, beta is a STATE, not seasonal
-beta0_default = 0.3        # initial beta state value (can tune)
+beta0_default = 0.3        # initial beta state value (tune as needed)
 
 ############################################################################################
 # Continuous time dynamics function
@@ -46,7 +52,7 @@ class F(object):
 
     def f(self, x_vec, u_vec, return_state_names=False):
         """
-        Continuous-time dynamics for the 5-state SEIR-beta model.
+        Continuous-time dynamics for 5-state SEIR-beta model.
         """
         if return_state_names:
             return ['S', 'E', 'I', 'R', 'beta']
@@ -68,14 +74,14 @@ class F(object):
         dI_dt    = self.sigma * E - (self.gamma + u3) * I - self.mu * I
         dR_dt    = (self.gamma + u3) * I + u2 * S - self.mu * R
 
-        # beta is constant in this version (can later add dynamics if you like)
+        # beta is constant
         dbeta_dt = 0.0
 
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt])
 
 
 ############################################################################################
-# Continuous time measurement functions (similar structure to your good code)
+# Continuous time measurement functions
 ############################################################################################
 class H(object):
     def __init__(self, measurement_option, mu=mu, sigma=sigma_default,
@@ -256,8 +262,8 @@ class H(object):
     # -------------------------------------------------------------------------
     def h_with_flows(self, x_vec, u_vec, return_measurement_names=False):
         """
-            Measurement:
-                y = [S, E, I, R, new_inf, prog, recov]^T
+        Measurement:
+            y = [S, E, I, R, new_inf, prog, recov]^T
         """
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
@@ -280,7 +286,6 @@ class H(object):
 
     # -------------------------------------------------------------------------
     # 11. h_observable: I, R, new_cases, recov
-    # (no C state in this 5-state version)
     # -------------------------------------------------------------------------
     def h_observable(self, x_vec, u_vec, return_measurement_names=False):
         """
@@ -304,7 +309,7 @@ class H(object):
 
 
 ############################################################################################
-# SEIR simulation with MPC (same structure as your good code, but 5 states)
+# SEIR simulation with MPC (5-state version)
 ############################################################################################
 def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
                   setpoint=None, rterm_u1=1e-4, rterm_u2=1e-4, rterm_u3=1e-4,
@@ -358,6 +363,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
         E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
 
+        # tvp keys become X_set internally in pybounds
         setpoint = {
             'S': np.zeros_like(tsim),
             'E': E_set,
