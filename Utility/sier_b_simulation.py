@@ -219,27 +219,30 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         measurement_names = h(None, None, return_measurement_names=True)
 
     # ------------------- build simulator -------------------
+
+                      
     simulator = pybounds.Simulator(
-        f, h,
-        dt=dt,
-        state_names=state_names,
-        input_names=input_names,
-        measurement_names=measurement_names,
-        mpc_horizon=int(10 / dt)
-    )
+    f, h,
+    dt=dt,
+    state_names=state_names,
+    input_names=input_names,
+    measurement_names=measurement_names,
+    mpc_horizon=int(10 / dt),
+    tvp_names=['E_set', 'I_set']  # Declare TVPs here
+)
 
-    # noise
-    if measurement_noise_stds is not None:
-        simulator.measurement_noise_std = np.array([
-            measurement_noise_stds.get(m, 0.0) for m in measurement_names
-        ])
+# noise
+if measurement_noise_stds is not None:
+    simulator.measurement_noise_std = np.array([
+        measurement_noise_stds.get(m, 0.0) for m in measurement_names
+    ])
 
-    tsim = np.arange(0, tsim_length, step=dt)
+tsim = np.arange(0, tsim_length, step=dt)
 
-    # ------------------- create TVPs E_set, I_set -------------------
-    # This defines them in model.tvp so they can be used in cost and update_dict
-    E_set_tvp = simulator.model.tvp['E_set']
-    I_set_tvp = simulator.model.tvp['I_set']
+# ------------------- create TVPs E_set, I_set -------------------
+# Now these can be accessed since they were declared
+E_set_tvp = simulator.model.tvp['E_set']
+I_set_tvp = simulator.model.tvp['I_set']
 
     # ------------------- default setpoints (trajectories) -------------------
     if setpoint is None:
