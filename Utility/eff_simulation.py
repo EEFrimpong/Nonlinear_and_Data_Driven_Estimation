@@ -53,7 +53,7 @@ class F(object):
         u3 = u_vec[2]      # treatment (extra recovery of I)
 
         # Force of infection
-        lambda_inf = beta * (-u1) * S * I / self.N
+        lambda_inf = beta * (u1) * S * I / self.N
 
         # ODEs based on the user's provided structure
         dS_dt = self.mu * self.N - lambda_inf - u2 * S - self.mu * S
