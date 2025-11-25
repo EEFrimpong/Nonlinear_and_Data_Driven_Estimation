@@ -99,7 +99,7 @@ class F(object):
         dsigma_dt = 0.0
 
         # Time state
-        dt_dt = 1.0
+        dt_dt = 0.0
 
         # Cumulative infections
         dC_dt = lambda_inf
