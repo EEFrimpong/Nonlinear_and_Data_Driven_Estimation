@@ -56,7 +56,7 @@ class F(object):
             dR/dt          = (γ + u3) I + u2 S - μR
             d(beta_eff)/dt = beta0 * (-ε * 2π/T) sin(2π t/T) (1 - u1)
             dσ/dt          = 0
-            dt/dt          = 1
+            dt/dt          = 0
             dC/dt          = lambda_inf
         """
 
