@@ -11,7 +11,7 @@ import pybounds
 mu = 0.02 / 365      # Natural mortality rate per day (2% per year)
 sigma = 1.0 / 5.2    # Progression rate from E to I (5.2 days incubation period)
 gamma = 1.0 / 10.0   # Recovery rate (10 days infectious period)
-N = 10000000          # Total population
+N = 1000000         # Total population
 
 # NEW PARAMETERS FOR SEASONAL BETA
 beta0_default = 0.5    # baseline transmission
@@ -224,14 +224,20 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
 
     # Default setpoint (TVPs): use names that match tvp['E_set'], tvp['I_set']
     if setpoint is None:
-        I_set = 0.0001 * N + (x0[2] - 0.0001 * N) * np.exp(-tsim / 100.0)
-        E_set = 0.00005 * N + (x0[1] - 0.00005 * N) * np.exp(-tsim / 80.0)
+        I_initial = x0[2]
+        E_initial = x0[1]
+
+        I_target = 0.0001 * N
+        E_target = 0.00005 * N
+
+        I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
+        E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
 
         setpoint = {
-            'S_set': np.zeros_like(tsim),
-            'E_set': E_set,
-            'I_set': I_set,
-            'R_set': np.zeros_like(tsim),
+            'S': np.zeros_like(tsim),
+            'E': E_set,
+            'I': I_set,
+            'R': np.zeros_like(tsim),
             'beta_dummy_set': np.ones_like(tsim) * beta0_default
         }
 
