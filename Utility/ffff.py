@@ -184,15 +184,17 @@ class H(object):
 
 
 ############################################################################################
-# SEIR simulation with MPC (pybounds) - FIXED VERSION
+# SEIR simulation with MPC (pybounds)
 ############################################################################################
 def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
                   setpoint=None,
                   rterm_u1=1e-4, rterm_u2=1e-4, rterm_u3=1e-4,
                   x0=None, measurement_noise_stds=None):
     """
-    f : dynamics, f(x_vec, u_vec, return_state_names=False)
-    h : measurement, h(x_vec, u_vec, return_measurement_names=False)
+    f : callable
+        Dynamics function: f(x_vec, u_vec, return_state_names=False)
+    h : callable
+        Measurement function: h(x_vec, u_vec, return_measurement_names=False)
 
     Returns:
         t_sim, x_sim, u_sim, y_sim, simulator
@@ -218,52 +220,59 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     if measurement_names is None:
         measurement_names = h(None, None, return_measurement_names=True)
 
-    # ------------------- build simulator with manual TVP declaration -------------------
+    # ------------------- build simulator -------------------
     simulator = pybounds.Simulator(
         f, h,
         dt=dt,
         state_names=state_names,
         input_names=input_names,
         measurement_names=measurement_names,
-        mpc_horizon=int(10 / dt),
-        tvp_names=['E_set', 'I_set']  # Manually declare the TVPs we need
+        mpc_horizon=int(10 / dt)
     )
 
     # ------------------- measurement noise -------------------
     if measurement_noise_stds is not None:
-        simulator.measurement_noise_std = np.array([
-            measurement_noise_stds.get(m, 0.0) for m in measurement_names
-        ])
+        noise_std_array = []
+        for name in measurement_names:
+            noise_std_array.append(measurement_noise_stds.get(name, 0.0))
+        simulator.measurement_noise_std = np.array(noise_std_array)
 
+    # ------------------- time grid -------------------
     tsim = np.arange(0, tsim_length, step=dt)
 
-    # ------------------- default setpoints -------------------
+    # ------------------- setpoint processing -------------------
+    # IMPORTANT: we NEVER put None in here, to avoid the .squeeze() error.
     if setpoint is None:
-        I_initial = x0[2]
-        E_initial = x0[1]
+        # Default: hold each state near its initial value
+        setpoint = {}
+        for i, name in enumerate(state_names):
+            setpoint[name] = np.ones_like(tsim) * x0[i]
 
-        I_target = 0.0001 * N
-        E_target = 0.00005 * N
+    # Ensure all keys in setpoint have numeric arrays
+    setpoint_processed = {}
+    for key in state_names:
+        if key in setpoint and setpoint[key] is not None:
+            arr = np.asarray(setpoint[key]).squeeze()
+            if arr.ndim == 0:  # scalar -> broadcast
+                arr = np.ones_like(tsim) * float(arr)
+            elif arr.shape[0] != tsim.shape[0]:
+                # broadcast / trim to match tsim length
+                arr = np.resize(arr, tsim.shape[0])
+            setpoint_processed[key] = arr
+        else:
+            # if missing, just hold at initial value
+            idx = state_names.index(key)
+            setpoint_processed[key] = np.ones_like(tsim) * x0[idx]
 
-        I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
-        E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
-
-        # Keys match the manually declared tvp_names
-        setpoint = {
-            'E_set': E_set,
-            'I_set': I_set
-        }
-
-    simulator.update_dict(setpoint, name='setpoint')
+    simulator.update_dict(setpoint_processed, name='setpoint')
 
     # ------------------- cost function -------------------
-    # Now we can safely access E_set and I_set TVPs
-    E_set_tvp = simulator.model.tvp['E_set']
-    I_set_tvp = simulator.model.tvp['I_set']
-    
-    cost_E = (simulator.model.x['E'] - E_set_tvp)**2
-    cost_I = (simulator.model.x['I'] - I_set_tvp)**2
-    cost = 10.0 * cost_E + 100.0 * cost_I
+    # Penalize E and I deviations from setpoint
+    cost = 0
+    if 'E' in state_names:
+        cost += 10 * (simulator.model.x['E'] - simulator.model.tvp['E_set']) ** 2
+    if 'I' in state_names:
+        cost += 100 * (simulator.model.x['I'] - simulator.model.tvp['I_set']) ** 2
 
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
 
@@ -274,15 +283,19 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     eps = 1e-6
 
     for var in ['S', 'E', 'I', 'R']:
-        simulator.mpc.bounds['lower', '_x', var] = eps
-        simulator.mpc.bounds['upper', '_x', var] = N
+        if var in state_names:
+            simulator.mpc.bounds['lower', '_x', var] = eps
+            simulator.mpc.bounds['upper', '_x', var] = N
 
-    simulator.mpc.bounds['lower', '_x', 'beta_eff'] = 0.1
-    simulator.mpc.bounds['upper', '_x', 'beta_eff'] = 2.0
-    simulator.mpc.bounds['lower', '_x', 'sigma'] = 1.0 / 30.0
-    simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0
-    simulator.mpc.bounds['lower', '_x', 't'] = 0.0
-    simulator.mpc.bounds['upper', '_x', 't'] = tsim_length + 10.0
+    if 'beta_eff' in state_names:
+        simulator.mpc.bounds['lower', '_x', 'beta_eff'] = 0.1
+        simulator.mpc.bounds['upper', '_x', 'beta_eff'] = 2.0
+    if 'sigma' in state_names:
+        simulator.mpc.bounds['lower', '_x', 'sigma'] = 1.0 / 30.0
+        simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0
+    if 't' in state_names:
+        simulator.mpc.bounds['lower', '_x', 't'] = 0.0
+        simulator.mpc.bounds['upper', '_x', 't'] = tsim_length + 10.0
 
     simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
     simulator.mpc.bounds['upper', '_u', 'u1'] = 0.9
