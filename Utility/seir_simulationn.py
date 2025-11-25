@@ -60,15 +60,18 @@ class H(object):
         return getattr(self, self.option)(x_vec, u_vec, return_measurement_names)
 
     def h_ir(self, x_vec, u_vec, return_measurement_names=False):
-        if return_measurement_names: return ['I','R']
+        if return_measurement_names: 
+            return ['I','R']
         return np.array([x_vec[2], x_vec[3]])
 
     def h_i(self, x_vec, u_vec, return_measurement_names=False):
-        if return_measurement_names: return ['I']
+        if return_measurement_names: 
+            return ['I']
         return np.array([x_vec[2]])
 
     def h_ei(self, x_vec, u_vec, return_measurement_names=False):
-        if return_measurement_names: return ['E','I']
+        if return_measurement_names: 
+            return ['E','I']
         return np.array([x_vec[1], x_vec[2]])
 
     def h_all(self, x_vec, u_vec, return_measurement_names=False):
