@@ -320,7 +320,7 @@ class H(object):
         Measurement: y = [I, new_cases, C, beta_eff]^T
         """
         if return_measurement_names:
-            return ['I_measured', 'R_measured', 'new_cases', 'beta_eff']
+            return ['I_measured', 'R_measured', 'new_cases', 'C', 'recov']
 
         S        = x_vec[0]
         I        = x_vec[2]
@@ -330,12 +330,12 @@ class H(object):
         u1       = u_vec[0]
 
         beta_eff = x_vec[4]
-        u1       = u_vec[0]
-
+        u3       = u_vec[2]
+        recov   = (self.gamma + u3) * I
         new_inf = beta_eff * (1.0 - u1) * S * I / self.N
 
         new_cases = beta_eff * (1.0 - u1) * S * I / self.N
-        return np.array([I, R, new_cases, beta_eff])
+        return np.array([I, R, new_cases, C, recov])
 
 
 ############################################################################################
