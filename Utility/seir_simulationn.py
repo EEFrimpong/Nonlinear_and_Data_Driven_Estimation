@@ -130,7 +130,8 @@ def rollout_cost(x0, u_flat, f, dt, Hs, Is,
         wI: Weight on I tracking error
         r: Control penalty weights (u1, u2, u3)
     """
-    Hsteps = len(Hs)
+    # Determine actual horizon from u_flat size
+    Hsteps = len(u_flat) // 3
     u_seq = u_flat.reshape(Hsteps, 3)
 
     x = x0.copy()
@@ -163,19 +164,22 @@ def solve_mpc(x, f, dt, horizon, E_set, I_set):
         u_opt: Optimal first control action
         U_full: Full optimal control sequence
     """
-    n = horizon * 3
+    # Adjust horizon if not enough setpoints remain
+    actual_horizon = min(horizon, len(E_set), len(I_set))
+    
+    n = actual_horizon * 3
     u0 = np.zeros(n)
 
     # Control bounds: [(u1_min, u1_max), (u2_min, u2_max), (u3_min, u3_max)] repeated
     bounds = []
-    for _ in range(horizon):
+    for _ in range(actual_horizon):
         bounds += [(0, 0.9), (0, 0.6), (0, 0.5)]  # u1, u2, u3 bounds
 
     # Objective function
     obj = lambda u: rollout_cost(
         x, u, f, dt,
-        Hs=E_set[:horizon],
-        Is=I_set[:horizon]
+        Hs=E_set[:actual_horizon],
+        Is=I_set[:actual_horizon]
     )
 
     # Solve optimization
@@ -184,9 +188,9 @@ def solve_mpc(x, f, dt, horizon, E_set, I_set):
 
     if not res.success:
         print(f"MPC optimization failed: {res.message}")
-        U = np.zeros((horizon, 3))
+        U = np.zeros((actual_horizon, 3))
     else:
-        U = res.x.reshape(horizon, 3)
+        U = res.x.reshape(actual_horizon, 3)
 
     return U[0], U
 
