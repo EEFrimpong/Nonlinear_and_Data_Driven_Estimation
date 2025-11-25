@@ -71,7 +71,7 @@ class H(object):
 
     def h_ir(self, x_vec, u_vec, return_measurement_names=False):
         if return_measurement_names: 
-            return ['I', 'R']
+            return ['I_absolute', 'R_absolute']
         if x_vec is None:  # Handle None case
             return None
         return np.array([x_vec[2], x_vec[3]])
@@ -200,11 +200,54 @@ def solve_mpc(x, f, dt, horizon, E_set, I_set):
 # ==========================================================
 class DummySimulator(object):
     """Mimics pybounds.Simulator API for compatibility"""
-    def __init__(self):
+    def __init__(self, f, h, dt):
+        self.f = f
+        self.h = h
+        self.dt = dt
         self.model = type('', (), {})()
         self.mpc   = type('', (), {})()
         self.bounds = {}
         self.mpc.bounds = self.bounds
+        
+    def simulate(self, x0, u=None, aux=None, mpc=False, return_full_output=False):
+        """
+        Simulate the system (minimal implementation for pybounds compatibility)
+        
+        Args:
+            x0: Initial state
+            u: Control input (array or None for zero control)
+            aux: Auxiliary inputs (not used)
+            mpc: Whether to use MPC (not used in this simple version)
+            return_full_output: Whether to return full outputs
+            
+        Returns:
+            y: Measurements if return_full_output=False
+            (t, x, u, y): Full outputs if return_full_output=True
+        """
+        x = np.array(x0, float)
+        
+        # If no control provided, use zero control
+        if u is None:
+            u_val = np.zeros(3)
+        else:
+            u_val = u if hasattr(u, '__len__') else np.array([u])
+        
+        # Single step simulation
+        x_next = rk4_step(self.f, x, u_val, self.dt)
+        x_next = np.clip(x_next, 0, N)
+        
+        # Measure
+        y = self.h(x_next, u_val)
+        y = np.array(y, float)
+        
+        if return_full_output:
+            t = np.array([0, self.dt])
+            x_arr = np.vstack([x, x_next])
+            u_arr = np.array([u_val])
+            y_arr = np.array([y])
+            return t, x_arr, u_arr, y_arr
+        else:
+            return y
 
 
 # ==========================================================
@@ -278,7 +321,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0,
     horizon = int(14/dt)
 
     # Create dummy simulator matching pybounds API
-    simulator = DummySimulator()
+    simulator = DummySimulator(f, h, dt)
     simulator.state_names = state_names
     simulator.input_names = input_names
     simulator.measurement_names = measurement_names
