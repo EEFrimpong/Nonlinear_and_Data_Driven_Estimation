@@ -92,8 +92,8 @@ class F(object):
             self.beta0
             * (-self.epsilon) * (2.0 * np.pi / self.T)
             * np.sin(2.0 * np.pi * t / self.T)
-            * (1.0 - u1)
-        )
+            * -u1)#(1.0 - u1)
+        
 
         # Sigma treated as slowly varying / constant parameter-state
         dsigma_dt = 0.0
@@ -102,7 +102,7 @@ class F(object):
         dt_dt = 0.0
 
         # Cumulative infections
-        dC_dt = lambda_inf
+        dC_dt = 0#lambda_inf
 
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt,
                          dbeta_dt, dsigma_dt, dt_dt, dC_dt])
