@@ -184,15 +184,19 @@ class H(object):
 
 
 ############################################################################################
-# SEIR simulation with MPC (pybounds)
-############################################################################################
-############################################################################################
-# SEIR simulation with MPC (pybounds)  — FIXED VERSION
+# SEIR simulation with MPC (pybounds) - FIXED VERSION
 ############################################################################################
 def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
                   setpoint=None,
                   rterm_u1=1e-4, rterm_u2=1e-4, rterm_u3=1e-4,
                   x0=None, measurement_noise_stds=None):
+    """
+    f : dynamics, f(x_vec, u_vec, return_state_names=False)
+    h : measurement, h(x_vec, u_vec, return_measurement_names=False)
+
+    Returns:
+        t_sim, x_sim, u_sim, y_sim, simulator
+    """
 
     # ------------------- initial conditions -------------------
     if x0 is None:
@@ -214,14 +218,15 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     if measurement_names is None:
         measurement_names = h(None, None, return_measurement_names=True)
 
-    # ------------------- build simulator -------------------
+    # ------------------- build simulator with manual TVP declaration -------------------
     simulator = pybounds.Simulator(
         f, h,
         dt=dt,
         state_names=state_names,
         input_names=input_names,
         measurement_names=measurement_names,
-        mpc_horizon=int(10 / dt)
+        mpc_horizon=int(10 / dt),
+        tvp_names=['E_set', 'I_set']  # Manually declare the TVPs we need
     )
 
     # ------------------- measurement noise -------------------
@@ -232,7 +237,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
 
     tsim = np.arange(0, tsim_length, step=dt)
 
-    # ------------------- default setpoints (AUTO TVP like working code) -------------------
+    # ------------------- default setpoints -------------------
     if setpoint is None:
         I_initial = x0[2]
         E_initial = x0[1]
@@ -243,28 +248,26 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
         E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
 
-        # IMPORTANT: keys must match state names to auto-create tvps:
+        # Keys match the manually declared tvp_names
         setpoint = {
-            'S': np.zeros_like(tsim),
-            'E': E_set,
-            'I': I_set,
-            'R': np.zeros_like(tsim),
-            'beta_eff': beta0_default * np.ones_like(tsim),
-            'sigma': sigma_default * np.ones_like(tsim),
-            't': tsim   # time
+            'E_set': E_set,
+            'I_set': I_set
         }
 
-    # pybounds will auto-create S_set, E_set, I_set, etc.
     simulator.update_dict(setpoint, name='setpoint')
 
     # ------------------- cost function -------------------
-    cost = (
-        10.0  * (simulator.model.x['E'] - simulator.model.tvp['E_set'])**2 +
-        100.0 * (simulator.model.x['I'] - simulator.model.tvp['I_set'])**2
-    )
+    # Now we can safely access E_set and I_set TVPs
+    E_set_tvp = simulator.model.tvp['E_set']
+    I_set_tvp = simulator.model.tvp['I_set']
+    
+    cost_E = (simulator.model.x['E'] - E_set_tvp)**2
+    cost_I = (simulator.model.x['I'] - I_set_tvp)**2
+    cost = 10.0 * cost_E + 100.0 * cost_I
+
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
 
-    # input penalties
+    # input regularization
     simulator.mpc.set_rterm(u1=rterm_u1, u2=rterm_u2, u3=rterm_u3)
 
     # ------------------- bounds -------------------
@@ -295,4 +298,63 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         mpc=True,
         return_full_output=True
     )
+
     return t_sim, x_sim, u_sim, y_sim, simulator
+
+
+############################################################################################
+# Example usage
+############################################################################################
+if __name__ == "__main__":
+    # Create dynamics and measurement functions
+    f = F().f
+    h_e = H('h_ir').h
+    
+    # Define measurement noise
+    measurement_noise_stds = {
+        'I_measured': 100,
+        'R_measured': 500
+    }
+    
+    # Run simulation
+    t_sim, x_sim, u_sim, y_sim, simulator = simulate_seir(
+        f,
+        h_e,
+        tsim_length=365,
+        dt=1.0,
+        measurement_noise_stds=measurement_noise_stds
+    )
+    
+    # Plot results
+    fig, axes = plt.subplots(3, 1, figsize=(12, 10))
+    
+    # Plot SEIR states
+    axes[0].plot(t_sim, x_sim[:, 0], label='S', alpha=0.7)
+    axes[0].plot(t_sim, x_sim[:, 1], label='E', alpha=0.7)
+    axes[0].plot(t_sim, x_sim[:, 2], label='I', alpha=0.7)
+    axes[0].plot(t_sim, x_sim[:, 3], label='R', alpha=0.7)
+    axes[0].set_ylabel('Population')
+    axes[0].set_title('SEIR Compartments')
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+    
+    # Plot controls
+    axes[1].plot(t_sim, u_sim[:, 0], label='u1 (distancing)', alpha=0.7)
+    axes[1].plot(t_sim, u_sim[:, 1], label='u2 (vaccination)', alpha=0.7)
+    axes[1].plot(t_sim, u_sim[:, 2], label='u3 (treatment)', alpha=0.7)
+    axes[1].set_ylabel('Control values')
+    axes[1].set_title('Control Interventions')
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+    
+    # Plot beta_eff and sigma
+    axes[2].plot(t_sim, x_sim[:, 4], label='beta_eff', alpha=0.7)
+    axes[2].plot(t_sim, x_sim[:, 5], label='sigma', alpha=0.7)
+    axes[2].set_xlabel('Time (days)')
+    axes[2].set_ylabel('Parameter values')
+    axes[2].set_title('Time-varying Parameters')
+    axes[2].legend()
+    axes[2].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
