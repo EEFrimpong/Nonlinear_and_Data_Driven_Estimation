@@ -136,7 +136,7 @@ class H(object):
         I    = x_vec[2]
         beta = x_vec[4]
         u1   = u_vec[0]
-        new_cases = beta * (1.0 - u1) * S * I / self.N
+        new_cases = beta * (- u1) * S * I / self.N
         return np.array([I, new_cases])
 
     # -------------------------------------------------------------------------
@@ -151,7 +151,7 @@ class H(object):
         R    = x_vec[3]
         beta = x_vec[4]
         u1   = u_vec[0]
-        new_cases = beta * (1.0 - u1) * S * I / self.N
+        new_cases = beta * (- u1) * S * I / self.N
         return np.array([I, R, new_cases])
 
     # -------------------------------------------------------------------------
@@ -166,7 +166,7 @@ class H(object):
         I     = x_vec[2]
         beta  = x_vec[4]
         u1    = u_vec[0]
-        new_inf = beta * (1.0 - u1) * S * I / self.N
+        new_inf = beta * (- u1) * S * I / self.N
         prog    = self.sigma * E  # Uses constant sigma
         return np.array([E, I, new_inf, prog])
 
@@ -196,7 +196,7 @@ class H(object):
         R     = x_vec[3]
         beta  = x_vec[4]
         u1    = u_vec[0]
-        new_inf = beta * (1.0 - u1) * S * I / self.N
+        new_inf = beta * (- u1) * S * I / self.N
         return np.array([S, E, I, R, new_inf])
 
     # -------------------------------------------------------------------------
@@ -228,7 +228,7 @@ class H(object):
         beta  = x_vec[4]
         u1    = u_vec[0]
         u3    = u_vec[2]
-        new_inf = beta * (1.0 - u1) * S * I / self.N
+        new_inf = beta * ( - u1) * S * I / self.N
         prog    = self.sigma * E
         recov   = (self.gamma + u3) * I
         return np.array([S, E, I, R, new_inf, prog, recov])
@@ -247,7 +247,7 @@ class H(object):
         u1 = u_vec[0]
         u3 = u_vec[2]
         recov     = (self.gamma + u3) * I
-        new_cases = beta * (1.0 - u1) * S * I / self.N
+        new_cases = beta * (- u1) * S * I / self.N
         return np.array([I, R, new_cases, recov])
 
 
