@@ -241,6 +241,7 @@ class H(object):
         if return_measurement_names:
             return ['I_measured', 'R_measured', 'new_cases', 'recov', 'prog']
         S    = x_vec[0]
+        E     = x_vec[1]
         I    = x_vec[2]
         R    = x_vec[3]
         beta = x_vec[4]
