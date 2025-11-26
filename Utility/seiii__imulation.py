@@ -56,7 +56,7 @@ class F(object):
             dR/dt          = (γ + u3) I + u2 S - μR
             d(beta_eff)/dt = beta0 * (-ε * 2π/T) sin(2π t/T) (1 - u1)
             dσ/dt          = 0
-            dC/dt          = lambda_inf
+            dC/dt          = 0#lambda_inf
         """
 
         if return_state_names:
@@ -78,7 +78,7 @@ class F(object):
         u3 = u_vec[2]     # treatment
 
         # Force of infection using beta_eff and control u1
-        lambda_inf = beta_eff * (1.0 - u1) * S * I / self.N
+        lambda_inf = 0#beta_eff * (1.0 - u1) * S * I / self.N
 
         # SEIR equations with controls and sigma as a state
         dS_dt = self.mu * self.N - lambda_inf - u2 * S - self.mu * S
@@ -101,7 +101,7 @@ class F(object):
         dt_dt = 0.0
 
         # Cumulative infections
-        dC_dt = lambda_inf
+        dC_dt = 0#lambda_inf
 
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt,
                          dbeta_dt, dsigma_dt, dt_dt, dC_dt])
