@@ -57,7 +57,7 @@ class F(object):
             d(beta_eff)/dt = beta0 * (-ε * 2π/T) sin(2π t/T) (1 - u1)
             dσ/dt          = 0
             dt/dt          = 0
-            dC/dt          = lambda_inf
+            dC/dt          = 0#lambda_inf
         """
 
         if return_state_names:
@@ -102,7 +102,7 @@ class F(object):
         dt_dt = 0.0
 
         # Cumulative infections
-        dC_dt = lambda_inf
+        dC_dt = 0#lambda_inf
 
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt,
                          dbeta_dt, dsigma_dt, dt_dt, dC_dt])
