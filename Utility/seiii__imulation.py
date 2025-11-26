@@ -60,7 +60,7 @@ class F(object):
         """
 
         if return_state_names:
-            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma', 'C']
+            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma', 't', 'C']
 
         # Extract state variables
         S        = x_vec[0]
@@ -69,7 +69,8 @@ class F(object):
         R        = x_vec[3]
         beta_eff = x_vec[4]
         sigma    = x_vec[5]
-        C        = x_vec[6]  # cumulative infections (not directly used in RHS except to carry forward)
+        t        = x_vec[6]
+        C        = x_vec[7]  # cumulative infections (not directly used in RHS except to carry forward)
 
         # Extract controls
         u1 = u_vec[0]     # prevention / social distancing
@@ -324,7 +325,7 @@ class H(object):
         I        = x_vec[2]
         R        = x_vec[3]
         beta_eff = x_vec[4]
-        C        = x_vec[6]
+        C        = x_vec[7]
         u1       = u_vec[0]
 
         beta_eff = x_vec[4]
