@@ -331,9 +331,9 @@ class H(object):
         beta_eff = x_vec[4]
         u3       = u_vec[2]
         recov   = (self.gamma + u3) * I
-        new_inf = beta_eff * (1.0 - u1) * S * I / self.N
+        new_inf = 0#beta_eff * (1.0 - u1) * S * I / self.N
 
-        new_cases = beta_eff * (1.0 - u1) * S * I / self.N
+        new_cases = #beta_eff * (1.0 - u1) * S * I / self.N
         return np.array([I, R, new_cases, recov])
 
 
