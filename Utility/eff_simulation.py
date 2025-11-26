@@ -238,7 +238,7 @@ class H(object):
     def h_observable(self, x_vec, u_vec, return_measurement_names=False):
         """Measurement: y = [I, R, new_cases, recov]^T"""
         if return_measurement_names:
-            return ['I_measured', 'R_measured', 'new_cases', 'recov', 'prog']
+            return ['I_measured', 'R_measured', 'new_cases', 'recov']
         S    = x_vec[0]
         E     = x_vec[1]
         I    = x_vec[2]
@@ -246,10 +246,9 @@ class H(object):
         beta = x_vec[4]
         u1 = u_vec[0]
         u3 = u_vec[2]
-        prog    = self.sigma * E
         recov     = (self.gamma + u3) * I
         new_cases = beta * (-u1) * S * I / self.N
-        return np.array([I, R, new_cases, recov, prog])
+        return np.array([I, R, new_cases, recov])
 
 
 ############################################################################################
