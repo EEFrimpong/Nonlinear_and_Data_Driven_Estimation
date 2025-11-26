@@ -50,7 +50,7 @@ class F(object):
         # Extract controls
         u1 = u_vec[0]      # social distancing (transmission reduction)
         u2 = u_vec[1]      # vaccination (S -> R)
-        u3 = u_vec[2]      # treatment (extra recovery of I)
+        u3=0# = u_vec[2]      # treatment (extra recovery of I)
 
         # Force of infection
         lambda_inf = beta * (1-u1) * S * I / self.N
@@ -227,7 +227,7 @@ class H(object):
         R     = x_vec[3]
         beta  = x_vec[4]
         u1    = u_vec[0]
-        u3    = u_vec[2]
+        u3=0#    = u_vec[2]
         new_inf = beta * (1-u1) * S * I / self.N
         prog    = self.sigma * E
         recov   = (self.gamma + u3) * I
@@ -246,7 +246,7 @@ class H(object):
         R    = x_vec[3]
         beta = x_vec[4]
         u1 = u_vec[0]
-        u3 = u_vec[2]
+        u3=0# = u_vec[2]
         prog    = self.sigma * E
         recov     = (self.gamma + u3) * I
         new_cases = beta * (1-u1) * S * I / self.N
