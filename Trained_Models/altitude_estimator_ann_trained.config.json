@@ -1,0 +1,25 @@
+{
+  "input_architecture": [
+    {
+      "core_input_dim": 30
+    }
+  ],
+  "core_architecture": [
+    {
+      "units": 50,
+      "activation": "tanh"
+    },
+    {
+      "units": 50,
+      "activation": "tanh"
+    },
+    {
+      "units": 20,
+      "activation": "tanh"
+    },
+    {
+      "units": 1,
+      "activation": "linear"
+    }
+  ]
+}
