@@ -1,114 +1,200 @@
-# ==============================================================
-# TWO-MASS SPRING SYSTEM WITH MPC AND KALMAN FILTER
-# Following the pybounds/SEIR architecture
-# ==============================================================
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.integrate import solve_ivp
-from scipy.linalg import expm
+from scipy.integrate import odeint
+import scipy.optimize
+from scipy import interpolate
+import pandas as pd
 import pybounds
 
-# ==============================================================
-# GLOBAL PARAMETERS
-# ==============================================================
-m1 = 1.0
-m2 = 1.0
-k1 = 2.0
-k2 = 3.0
+############################################################################################
+# Set some global parameters
+############################################################################################
+m1 = 1.0  # mass 1 (kg)
+m2 = 1.0  # mass 2 (kg)
+k1 = 2.0  # spring constant 1 (N/m)
+k2 = 3.0  # spring constant 2 (N/m)
 
-# ==============================================================
-# CONTINUOUS TIME DYNAMICS CLASS
-# ==============================================================
+############################################################################################
+# Continuous time dynamics function
+############################################################################################
 class F(object):
-    """
-    Dynamics for two-mass spring system with control.
-    
-    States: x = [x1, x2, x3, x4]
-        x1: position of mass 1
-        x2: velocity of mass 1
-        x3: position of mass 2
-        x4: velocity of mass 2
-    
-    Controls: u = [u1, u2]
-        u1: force on mass 1
-        u2: force on mass 2
-    """
-    
     def __init__(self, m1=m1, m2=m2, k1=k1, k2=k2):
+        """
+        Initialize with system parameters.
+        """
         self.m1 = m1
         self.m2 = m2
         self.k1 = k1
         self.k2 = k2
-    
+
     def f(self, x_vec, u_vec, return_state_names=False):
         """
-        Continuous time dynamics function.
+        Continuous time dynamics function for two-mass spring system.
         
-        dx1/dt = x2
-        dx2/dt = -(k1+k2)/m1 * x1 + k2/m1 * x3 + u1/m1
-        dx3/dt = x4
-        dx4/dt = k2/m2 * x1 - k2/m2 * x3 + u2/m2
+        Control-affine form: ẋ = f₀(x) + f₁(x)u₁ + f₂(x)u₂
+        
+        States:
+            x = [x1, x2, x3, x4]
+            x1: position of mass 1
+            x2: velocity of mass 1
+            x3: position of mass 2
+            x4: velocity of mass 2
+        
+        Controls:
+            u = [u1, u2]
+            u1: force on mass 1
+            u2: force on mass 2
+        
+        Dynamics:
+            ẋ₁ = x₂
+            ẋ₂ = -(k₁+k₂)/m₁·x₁ + k₂/m₁·x₃ + u₁/m₁
+            ẋ₃ = x₄
+            ẋ₄ = k₂/m₂·x₁ - k₂/m₂·x₃ + u₂/m₂
+        
+        Returns:
+            x_dot : numpy array, shape (4,)
+                Time derivative of state vector
         """
         if return_state_names:
             return ['x1', 'x2', 'x3', 'x4']
         
-        x1, x2, x3, x4 = x_vec
-        u1, u2 = u_vec
+        # Extract state variables
+        x1 = x_vec[0]
+        x2 = x_vec[1]
+        x3 = x_vec[2]
+        x4 = x_vec[3]
         
-        dx1 = x2
-        dx2 = -(self.k1 + self.k2)/self.m1 * x1 + (self.k2/self.m1) * x3 + u1/self.m1
-        dx3 = x4
-        dx4 = (self.k2/self.m2) * x1 - (self.k2/self.m2) * x3 + u2/self.m2
+        # Extract control inputs
+        u1 = u_vec[0]
+        u2 = u_vec[1]
         
-        return np.array([dx1, dx2, dx3, dx4])
+        # f₀ component: drift dynamics (no controls)
+        f0_contribution = np.array([
+            x2,
+            -(self.k1 + self.k2)/self.m1 * x1 + (self.k2/self.m1) * x3,
+            x4,
+            (self.k2/self.m2) * x1 - (self.k2/self.m2) * x3
+        ])
+        
+        # f₁ component: multiplied by control u1
+        f1_contribution = u1 * np.array([
+            0,
+            1.0/self.m1,
+            0,
+            0
+        ])
+        
+        # f₂ component: multiplied by control u2
+        f2_contribution = u2 * np.array([
+            0,
+            0,
+            0,
+            1.0/self.m2
+        ])
+        
+        # Combined dynamics
+        x_dot_vec = f0_contribution + f1_contribution + f2_contribution
+        
+        return x_dot_vec
 
 
-# ==============================================================
-# MEASUREMENT CLASS
-# ==============================================================
+############################################################################################
+# Continuous time measurement functions
+############################################################################################
 class H(object):
-    """
-    Measurement functions for the two-mass system.
-    """
-    
     def __init__(self, measurement_option):
+        """
+        Initialize measurement function.
+        
+        measurement_option: string naming which h_* function to use.
+        """
         self.measurement_option = measurement_option
-    
+
     def h(self, x_vec, u_vec, return_measurement_names=False):
         h_func = self.__getattribute__(self.measurement_option)
         return h_func(x_vec, u_vec, return_measurement_names=return_measurement_names)
-    
-    # Option 1: Measure only position of mass 1
+
+    # -------------------------------------------------------------------------
+    # 1. h_x1_only: Measure only position of mass 1
+    # -------------------------------------------------------------------------
     def h_x1_only(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement: y = [x1]
+        This is the standard observability case.
+        """
         if return_measurement_names:
             return ['x1_measured']
-        return np.array([x_vec[0]])
-    
-    # Option 2: Measure both positions
+        
+        x1 = x_vec[0]
+        return np.array([x1])
+
+    # -------------------------------------------------------------------------
+    # 2. h_positions: Measure both positions
+    # -------------------------------------------------------------------------
     def h_positions(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement: y = [x1, x3]^T
+        """
         if return_measurement_names:
             return ['x1_measured', 'x3_measured']
-        return np.array([x_vec[0], x_vec[2]])
-    
-    # Option 3: Measure all states (full state feedback)
-    def h_full_state(self, x_vec, u_vec, return_measurement_names=False):
-        if return_measurement_names:
-            return ['x1_measured', 'x2_measured', 'x3_measured', 'x4_measured']
-        return np.array(x_vec)
-    
-    # Option 4: Measure position and velocity of mass 1
+        
+        x1 = x_vec[0]
+        x3 = x_vec[2]
+        return np.array([x1, x3])
+
+    # -------------------------------------------------------------------------
+    # 3. h_mass1: Measure position and velocity of mass 1
+    # -------------------------------------------------------------------------
     def h_mass1(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement: y = [x1, x2]^T
+        """
         if return_measurement_names:
             return ['x1_measured', 'x2_measured']
-        return np.array([x_vec[0], x_vec[1]])
+        
+        x1 = x_vec[0]
+        x2 = x_vec[1]
+        return np.array([x1, x2])
+
+    # -------------------------------------------------------------------------
+    # 4. h_full_state: Measure all states
+    # -------------------------------------------------------------------------
+    def h_full_state(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement: y = [x1, x2, x3, x4]^T
+        """
+        if return_measurement_names:
+            return ['x1_measured', 'x2_measured', 'x3_measured', 'x4_measured']
+        
+        return np.array(x_vec)
+
+    # -------------------------------------------------------------------------
+    # 5. h_with_forces: Measure positions and include force measurements
+    # -------------------------------------------------------------------------
+    def h_with_forces(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement: y = [x1, x3, f1, f2]^T
+        where f1, f2 are the spring forces
+        """
+        if return_measurement_names:
+            return ['x1_measured', 'x3_measured', 'force1', 'force2']
+        
+        x1 = x_vec[0]
+        x3 = x_vec[2]
+        
+        # Spring forces (from dynamics)
+        force1 = -(k1 + k2) * x1 + k2 * x3
+        force2 = k2 * x1 - k2 * x3
+        
+        return np.array([x1, x3, force1, force2])
 
 
-# ==============================================================
-# SIMULATION FUNCTION
-# ==============================================================
-def simulate_spring(f, h, tsim_length=20, dt=0.02, measurement_names=None,
-                      setpoint=None, rterm_u1=0.01, rterm_u2=0.01,
-                      x0=None, measurement_noise_stds=None):
+############################################################################################
+# Spring system simulation with MPC
+############################################################################################
+def simulate_spring(f, h, tsim_length=10, dt=0.1, measurement_names=None,
+                    setpoint=None, rterm_u1=0.01, rterm_u2=0.01,
+                    x0=None, measurement_noise_stds=None):
     """
     Simulate two-mass spring system with MPC control.
     
@@ -129,22 +215,34 @@ def simulate_spring(f, h, tsim_length=20, dt=0.02, measurement_names=None,
     rterm_u1, rterm_u2 : float
         Control penalty weights
     x0 : array
-        Initial state
+        Initial state [x1, x2, x3, x4]
     measurement_noise_stds : dict
         Standard deviations for measurement noise
+    
+    Returns:
+    --------
+    t_sim : array
+        Time points
+    x_sim : dict
+        State trajectories
+    u_sim : dict
+        Control inputs
+    y_sim : dict
+        Measurements
+    simulator : pybounds.Simulator
+        Simulator object
     """
     
-    # Default initial conditions
-    if x0 is None:
-        x0 = np.array([1.0, 0.0, 0.5, 0.0])
-    
-    # State and input names
+    # Set state and input names
     state_names = f(None, None, return_state_names=True)
     input_names = ['u1', 'u2']
     
-    # Measurement names
+    # Choose the measurement function
     if measurement_names is None:
-        measurement_names = h(None, None, return_measurement_names=True)
+        try:
+            measurement_names = h(None, None, return_measurement_names=True)
+        except:
+            raise ValueError('Need to provide measurement_names as a list of strings')
     
     # Initialize simulator
     simulator = pybounds.Simulator(
@@ -164,10 +262,14 @@ def simulate_spring(f, h, tsim_length=20, dt=0.02, measurement_names=None,
     
     # Time grid
     tsim = np.arange(0, tsim_length, step=dt)
+    NA = np.zeros_like(tsim)
     
-    # Default setpoint: bring both masses to rest at origin
+    # Default initial conditions
+    if x0 is None:
+        x0 = np.array([1.0, 0.0, 0.5, 0.0])
+    
+    # Default setpoint: exponential decay to rest at origin
     if setpoint is None:
-        # Exponential decay to zero for positions
         x1_target = 0.0
         x3_target = 0.0
         
@@ -176,27 +278,29 @@ def simulate_spring(f, h, tsim_length=20, dt=0.02, measurement_names=None,
         
         setpoint = {
             'x1': x1_set,
-            'x2': np.zeros_like(tsim),
+            'x2': NA,
             'x3': x3_set,
-            'x4': np.zeros_like(tsim)
+            'x4': NA
         }
     
+    # Update the simulator set-point
     simulator.update_dict(setpoint, name='setpoint')
     
-    # MPC cost function: penalize deviation from setpoint
-    cost = (
-        100.0 * (simulator.model.x['x1'] - simulator.model.tvp['x1_set'])**2 +
-        10.0 * (simulator.model.x['x2'] - simulator.model.tvp['x2_set'])**2 +
-        100.0 * (simulator.model.x['x3'] - simulator.model.tvp['x3_set'])**2 +
-        10.0 * (simulator.model.x['x4'] - simulator.model.tvp['x4_set'])**2
-    )
+    # Define MPC cost function: penalize deviation from setpoint
+    cost_x1 = (simulator.model.x['x1'] - simulator.model.tvp['x1_set']) ** 2
+    cost_x2 = (simulator.model.x['x2'] - simulator.model.tvp['x2_set']) ** 2
+    cost_x3 = (simulator.model.x['x3'] - simulator.model.tvp['x3_set']) ** 2
+    cost_x4 = (simulator.model.x['x4'] - simulator.model.tvp['x4_set']) ** 2
     
+    cost = 100.0 * cost_x1 + 10.0 * cost_x2 + 100.0 * cost_x3 + 10.0 * cost_x4
+    
+    # Set cost function
     simulator.mpc.set_objective(mterm=cost, lterm=cost)
     
-    # Input penalties
+    # Set input penalty
     simulator.mpc.set_rterm(u1=rterm_u1, u2=rterm_u2)
     
-    # State bounds
+    # Set bounds on states and controls
     simulator.mpc.bounds['lower', '_x', 'x1'] = -5.0
     simulator.mpc.bounds['upper', '_x', 'x1'] = 5.0
     simulator.mpc.bounds['lower', '_x', 'x2'] = -10.0
@@ -212,7 +316,7 @@ def simulate_spring(f, h, tsim_length=20, dt=0.02, measurement_names=None,
     simulator.mpc.bounds['lower', '_u', 'u2'] = -5.0
     simulator.mpc.bounds['upper', '_u', 'u2'] = 5.0
     
-    # Run simulation with MPC
+    # Run simulation using MPC
     t_sim, x_sim, u_sim, y_sim = simulator.simulate(
         x0=x0,
         u=None,
@@ -220,106 +324,25 @@ def simulate_spring(f, h, tsim_length=20, dt=0.02, measurement_names=None,
         return_full_output=True
     )
     
+    # Return
     return t_sim, x_sim, u_sim, y_sim, simulator
 
 
-# ==============================================================
-# MAIN SIMULATION
-# ==============================================================
-if __name__ == "__main__":
+def package_data_as_pandas_dataframe(t_sim, x_sim, u_sim, y_sim):
+    """
+    Turn all the simulation outputs into pandas dataframes.
+    """
+    # Turn all the sim outputs into pandas dataframes
+    df_x = pd.DataFrame(x_sim)  # x_sim is a dict
+    df_u = pd.DataFrame(u_sim)  # u_sim is a dict
+    df_y = pd.DataFrame(y_sim)  # y_sim is a dict
+    df_t = pd.DataFrame({'time': t_sim})  # t_sim is a 1d array, make it a dict
     
-    print("="*60)
-    print("TWO-MASS SPRING SYSTEM WITH MPC")
-    print("="*60)
+    # Rename the columns for y so that they do not conflict with state names
+    new_names = {key: 'sensor_' + key for key in df_y}
+    df_y = df_y.rename(columns=new_names)
     
-    # Create dynamics and measurement objects
-    f = F(m1=m1, m2=m2, k1=k1, k2=k2)
-    h = H(measurement_option='h_x1_only')  # Only measure x1
-    
-    # Initial conditions
-    x0 = np.array([1.0, 0.0, 0.5, 0.0])
-    
-    # Measurement noise
-    measurement_noise_stds = {
-        'x1_measured': 0.05
-    }
-    
-    # Run simulation
-    print("\nRunning MPC simulation...")
-    t_sim, x_sim, u_sim, y_sim, simulator = simulate_spring(
-        f, h,
-        tsim_length=20.0,
-        dt=0.02,
-        x0=x0,
-        measurement_noise_stds=measurement_noise_stds,
-        rterm_u1=0.01,
-        rterm_u2=0.01
-    )
-    
-    print(f"Simulation completed: {len(t_sim)} time steps")
-    print(f"Final state: x1={x_sim[0,-1]:.4f}, x2={x_sim[1,-1]:.4f}, "
-          f"x3={x_sim[2,-1]:.4f}, x4={x_sim[3,-1]:.4f}")
-    
-    # ==============================================================
-    # PLOTTING
-    # ==============================================================
-    fig, axes = plt.subplots(3, 1, figsize=(12, 10))
-    
-    # Plot 1: Positions
-    axes[0].plot(t_sim, x_sim[0,:], 'b-', linewidth=2, label='x₁ (mass 1)')
-    axes[0].plot(t_sim, x_sim[2,:], 'r-', linewidth=2, label='x₃ (mass 2)')
-    if y_sim is not None:
-        axes[0].plot(t_sim, y_sim[0,:], 'k.', alpha=0.2, markersize=2, 
-                    label='Measured x₁')
-    axes[0].axhline(0, color='k', linestyle='--', linewidth=0.8, alpha=0.3)
-    axes[0].set_ylabel('Position', fontsize=11)
-    axes[0].set_title('Two-Mass Spring System with MPC Control', 
-                     fontsize=13, fontweight='bold')
-    axes[0].legend(loc='upper right')
-    axes[0].grid(True, alpha=0.3)
-    
-    # Plot 2: Velocities
-    axes[1].plot(t_sim, x_sim[1,:], 'b-', linewidth=2, label='x₂ (velocity 1)')
-    axes[1].plot(t_sim, x_sim[3,:], 'r-', linewidth=2, label='x₄ (velocity 2)')
-    axes[1].axhline(0, color='k', linestyle='--', linewidth=0.8, alpha=0.3)
-    axes[1].set_ylabel('Velocity', fontsize=11)
-    axes[1].legend(loc='upper right')
-    axes[1].grid(True, alpha=0.3)
-    
-    # Plot 3: Control inputs
-    axes[2].plot(t_sim[:-1], u_sim[0,:], 'g-', linewidth=2, label='u₁ (force on mass 1)')
-    axes[2].plot(t_sim[:-1], u_sim[1,:], 'm-', linewidth=2, label='u₂ (force on mass 2)')
-    axes[2].axhline(0, color='k', linestyle='--', linewidth=0.8, alpha=0.3)
-    axes[2].set_xlabel('Time (s)', fontsize=11)
-    axes[2].set_ylabel('Control Force', fontsize=11)
-    axes[2].legend(loc='upper right')
-    axes[2].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    # Phase portrait
-    fig2, axes2 = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # Mass 1 phase portrait
-    axes2[0].plot(x_sim[0,:], x_sim[1,:], 'b-', linewidth=2)
-    axes2[0].plot(x0[0], x0[1], 'go', markersize=10, label='Start')
-    axes2[0].plot(x_sim[0,-1], x_sim[1,-1], 'ro', markersize=10, label='End')
-    axes2[0].set_xlabel('Position x₁', fontsize=11)
-    axes2[0].set_ylabel('Velocity x₂', fontsize=11)
-    axes2[0].set_title('Phase Portrait - Mass 1', fontsize=12, fontweight='bold')
-    axes2[0].legend()
-    axes2[0].grid(True, alpha=0.3)
-    
-    # Mass 2 phase portrait
-    axes2[1].plot(x_sim[2,:], x_sim[3,:], 'r-', linewidth=2)
-    axes2[1].plot(x0[2], x0[3], 'go', markersize=10, label='Start')
-    axes2[1].plot(x_sim[2,-1], x_sim[3,-1], 'ro', markersize=10, label='End')
-    axes2[1].set_xlabel('Position x₃', fontsize=11)
-    axes2[1].set_ylabel('Velocity x₄', fontsize=11)
-    axes2[1].set_title('Phase Portrait - Mass 2', fontsize=12, fontweight='bold')
-    axes2[1].legend()
-    axes2[1].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.show()
+    # Merge into a single data frame for the entire trajectory
+    df_trajec = pd.concat([df_t, df_x, df_u, df_y], axis=1)
+
+    return df_trajec
