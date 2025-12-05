@@ -13,7 +13,7 @@ m1 = 1.0      # mass 1 (kg)
 m2 = 1.0      # mass 2 (kg)
 k1 = 2.0      # spring constant 1 (N/m)
 k2 = 3.0      # spring constant 2 (N/m)
-alpha = 0.5   # cubic nonlinearity coefficient
+alpha = 0.1   # cubic nonlinearity coefficient (reduced for stability)
 
 ############################################################################################
 # Continuous time dynamics function
