@@ -123,9 +123,11 @@ class H(object):
 # Mass-spring simulation
 ############################################################################################
 def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
-                         trajectory_shape='sinusoidal', setpoint=None, rterm=1e-4):
+                         trajectory_shape='sinusoidal', setpoint=None, rterm=1e-4,
+                         measurement_noise_stds=None):
     """
     trajectory_shape: 'sinusoidal', 'step', 'tracking'
+    measurement_noise_stds: dict with keys matching measurement names and values as standard deviations
     """
     # Set state and input names
     state_names = f(None, None, return_state_names=True)
@@ -142,6 +144,12 @@ def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
     simulator = pybounds.Simulator(f, h, dt=dt, state_names=state_names, 
                                    input_names=input_names, measurement_names=measurement_names, 
                                    mpc_horizon=int(1/dt))
+
+    # Add measurement noise if specified
+    if measurement_noise_stds is not None:
+        for measurement_name, std in measurement_noise_stds.items():
+            if measurement_name in measurement_names:
+                simulator.measurement_noise_stds[measurement_name] = std
 
     # Define the set-point(s) to follow
     tsim = np.arange(0, tsim_length, step=dt)
