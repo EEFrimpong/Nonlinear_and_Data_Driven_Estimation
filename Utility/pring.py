@@ -123,9 +123,11 @@ class H(object):
 # Mass-spring simulation
 ############################################################################################
 def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
-                         trajectory_shape='sinusoidal', setpoint=None, rterm=1e-4):
+                         trajectory_shape='sinusoidal', setpoint=None, rterm=1e-4,
+                         measurement_noise_stds=None):
     """
     trajectory_shape: 'sinusoidal', 'step', 'tracking', 'oscillating'
+    measurement_noise_stds: dict with keys matching measurement names and values as standard deviations
     """
     # Set state and input names
     state_names = f(None, None, return_state_names=True)
@@ -142,6 +144,20 @@ def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
     simulator = pybounds.Simulator(f, h, dt=dt, state_names=state_names, 
                                    input_names=input_names, measurement_names=measurement_names, 
                                    mpc_horizon=int(1/dt))
+    
+    # Set measurement noise if provided
+    if measurement_noise_stds is not None:
+        # Create a measurement noise dictionary that matches the measurement names
+        noise_dict = {}
+        for meas_name in measurement_names:
+            if meas_name in measurement_noise_stds:
+                noise_dict[meas_name] = measurement_noise_stds[meas_name]
+            else:
+                noise_dict[meas_name] = 0.0  # No noise if not specified
+        
+        # Set the noise in the simulator's model
+        for meas_name, std_val in noise_dict.items():
+            simulator.model.set_meas_noise(meas_name, std=std_val)
 
     # Define the set-point(s) to follow
     tsim = np.arange(0, tsim_length, step=dt)
@@ -206,6 +222,13 @@ def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
 
     # Run simulation using MPC
     t_sim, x_sim, u_sim, y_sim = simulator.simulate(x0=None, u=None, mpc=True, return_full_output=True)
+    
+    # Add measurement noise manually if specified
+    if measurement_noise_stds is not None:
+        for meas_name in measurement_names:
+            if meas_name in measurement_noise_stds and meas_name in y_sim:
+                noise = np.random.normal(0, measurement_noise_stds[meas_name], len(t_sim))
+                y_sim[meas_name] = y_sim[meas_name] + noise
 
     # Return
     return t_sim, x_sim, u_sim, y_sim, simulator
