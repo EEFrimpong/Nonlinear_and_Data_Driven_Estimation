@@ -140,16 +140,11 @@ def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
         except:
             raise ValueError('Need to provide measurement_names as a list of strings')
 
-    # Initialize simulator
+    # Initialize simulator with measurement noise
     simulator = pybounds.Simulator(f, h, dt=dt, state_names=state_names, 
                                    input_names=input_names, measurement_names=measurement_names, 
-                                   mpc_horizon=int(1/dt))
-
-    # Add measurement noise if specified
-    if measurement_noise_stds is not None:
-        for measurement_name, std in measurement_noise_stds.items():
-            if measurement_name in measurement_names:
-                simulator.measurement_noise_stds[measurement_name] = std
+                                   mpc_horizon=int(1/dt),
+                                   measurement_noise_stds=measurement_noise_stds)
 
     # Define the set-point(s) to follow
     tsim = np.arange(0, tsim_length, step=dt)
