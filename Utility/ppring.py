@@ -81,6 +81,15 @@ class H(object):
         h_func = self.__getattribute__(self.measurement_option)
         return h_func(x_vec, u_vec, return_measurement_names=return_measurement_names)
 
+    def h_x1(self, x_vec, u_vec, return_measurement_names=False):
+        """Measure both positions"""
+        if return_measurement_names:
+            return ['x1']
+
+        x1 = x_vec[0]
+        
+        return np.array([x1])
+
     def h_positions(self, x_vec, u_vec, return_measurement_names=False):
         """Measure both positions"""
         if return_measurement_names:
