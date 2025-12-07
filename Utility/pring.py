@@ -123,11 +123,9 @@ class H(object):
 # Mass-spring simulation
 ############################################################################################
 def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
-                         trajectory_shape='sinusoidal', setpoint=None, rterm=1e-4,
-                         measurement_noise_stds=None):
+                         trajectory_shape='sinusoidal', setpoint=None, rterm=1e-4):
     """
-    trajectory_shape: 'sinusoidal', 'step', 'tracking'
-    measurement_noise_stds: dict with keys matching measurement names and values as standard deviations
+    trajectory_shape: 'sinusoidal', 'step', 'tracking', 'oscillating'
     """
     # Set state and input names
     state_names = f(None, None, return_state_names=True)
@@ -144,20 +142,6 @@ def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
     simulator = pybounds.Simulator(f, h, dt=dt, state_names=state_names, 
                                    input_names=input_names, measurement_names=measurement_names, 
                                    mpc_horizon=int(1/dt))
-    
-    # Set measurement noise if provided
-    if measurement_noise_stds is not None:
-        # Create a measurement noise dictionary that matches the measurement names
-        noise_dict = {}
-        for meas_name in measurement_names:
-            if meas_name in measurement_noise_stds:
-                noise_dict[meas_name] = measurement_noise_stds[meas_name]
-            else:
-                noise_dict[meas_name] = 0.0  # No noise if not specified
-        
-        # Set the noise in the simulator's model
-        for meas_name, std_val in noise_dict.items():
-            simulator.model.set_meas_noise(meas_name, std=std_val)
 
     # Define the set-point(s) to follow
     tsim = np.arange(0, tsim_length, step=dt)
@@ -222,13 +206,6 @@ def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
 
     # Run simulation using MPC
     t_sim, x_sim, u_sim, y_sim = simulator.simulate(x0=None, u=None, mpc=True, return_full_output=True)
-    
-    # Add measurement noise manually if specified
-    if measurement_noise_stds is not None:
-        for meas_name in measurement_names:
-            if meas_name in measurement_noise_stds and meas_name in y_sim:
-                noise = np.random.normal(0, measurement_noise_stds[meas_name], len(t_sim))
-                y_sim[meas_name] = y_sim[meas_name] + noise
 
     # Return
     return t_sim, x_sim, u_sim, y_sim, simulator
@@ -236,16 +213,17 @@ def simulate_mass_spring(f, h, tsim_length=20, dt=0.01, measurement_names=None,
 
 def package_data_as_pandas_dataframe(t_sim, x_sim, u_sim, y_sim):
     """Package simulation data into a pandas DataFrame"""
-    df_x = pd.DataFrame(x_sim)
-    df_u = pd.DataFrame(u_sim)
-    df_y = pd.DataFrame(y_sim)
-    df_t = pd.DataFrame({'time': t_sim})
+    # Turn all the sim outputs into pandas dataframes
+    df_x = pd.DataFrame(x_sim)  # x_sim is a dict
+    df_u = pd.DataFrame(u_sim)  # u_sim is a dict
+    df_y = pd.DataFrame(y_sim)  # y_sim is a dict
+    df_t = pd.DataFrame({'time': t_sim})  # t_sim is a 1d array, make it a dict
     
-    # Rename sensor columns
+    # Rename the columns for y so that they do not conflict with state names
     new_names = {key: 'sensor_' + key for key in df_y}
     df_y = df_y.rename(columns=new_names)
     
-    # Merge into single dataframe
+    # Merge into a single data frame for the entire trajectory
     df_trajec = pd.concat([df_t, df_x, df_u, df_y], axis=1)
     
     return df_trajec
@@ -259,22 +237,13 @@ if __name__ == "__main__":
     f_model = F(m1=1.0, m2=1.0, k1=10.0, k2=5.0, alpha=0.5)
     h_model = H(measurement_option='h_full_state')
     
-    # Define measurement noise
-    measurement_noise_stds = {
-        'x1': 0.05,
-        'x2': 0.05,
-        'x1_dot': 0.03,
-        'x2_dot': 0.03,
-    }
-    
     # Run simulation
     t_sim, x_sim, u_sim, y_sim, simulator = simulate_mass_spring(
         f_model.f, h_model.h, 
         tsim_length=20, 
         dt=0.01, 
         trajectory_shape='sinusoidal',
-        rterm=1e-3,
-        measurement_noise_stds=measurement_noise_stds
+        rterm=1e-3
     )
     
     # Package data
