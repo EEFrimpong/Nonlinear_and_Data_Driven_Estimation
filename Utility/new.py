@@ -90,7 +90,7 @@ class F(object):
             self.beta0
             * (-self.epsilon) * (2.0 * np.pi / self.T)
             * np.sin(2.0 * np.pi * t / self.T)
-            *(1.0 - u1)
+            *(1.0 - u1))
         
 
         # Sigma treated as slowly varying / constant parameter-state
