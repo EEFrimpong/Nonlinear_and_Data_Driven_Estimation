@@ -1,4 +1,4 @@
-import numpy as np
+import numpy as np 
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
 import scipy.optimize
@@ -8,15 +8,15 @@ import pybounds
 ############################################################################################
 # Set some global parameters
 ############################################################################################
-mu = 0.02 / 365            # Natural mortality rate per day (2% per year)
+mu = 0.02 / 365             # Natural mortality rate per day (2% per year)
 sigma_default = 1.0 / 10.2  # Default progression rate from E to I (10.2 days incubation period)
-gamma = 1.0 / 10.0         # Recovery rate (10 days infectious period)
-N = 1_000_000              # Total population
+gamma = 1.0 / 10.0          # Recovery rate (10 days infectious period)
+N = 1_000_000               # Total population
 
 # PARAMETERS FOR SEASONAL BETA (transmission rate)
-beta0_default = 0.3        # baseline transmission rate
-epsilon_default = 0.2      # seasonal amplitude
-T_default = 365            # seasonal period (days)
+beta0_default = 0.3         # baseline transmission rate
+epsilon_default = 0.2       # seasonal amplitude
+T_default = 365             # seasonal period (days)
 
 ############################################################################################
 # Continuous time dynamics function
@@ -39,7 +39,14 @@ class F(object):
         Continuous time dynamics function for SEIR model with control.
 
         States:
-            x = [S, E, I, R, t]
+            x = [S, E, I, R, t, sigma]
+
+            - S: susceptible
+            - E: exposed
+            - I: infectious
+            - R: recovered
+            - t: internal clock used for seasonal forcing
+            - sigma: progression rate E -> I (treated as a state)
 
         Controls:
             u1 = u_vec[0]   social distancing (transmission reduction)
@@ -47,7 +54,6 @@ class F(object):
             u3 = u_vec[2]   treatment (extra recovery of I)
 
         Parameters:
-            sigma = 1/10.2  (fixed progression rate from E to I)
             gamma = 1/10.0  (fixed recovery rate)
 
         Seasonal transmission rate:
@@ -60,25 +66,24 @@ class F(object):
             lambda_inf = beta_eff(t) * S * I / N
 
         ODEs:
-            dS/dt = μN - lambda_inf - u2*S - μ*S
-            dE/dt = lambda_inf - σ*E - μ*E
-            dI/dt = σ*E - (γ + u3)*I - μ*I
-            dR/dt = (γ + u3)*I + u2*S - μ*R
-            dt/dt = 1
+            dS/dt     = μN - lambda_inf - u2*S - μ*S
+            dE/dt     = lambda_inf - sigma*E - μ*E
+            dI/dt     = sigma*E - (γ + u3)*I - μ*I
+            dR/dt     = (γ + u3)*I + u2*S - μ*R
+            dt/dt     = 1
+            d(sigma)/dt = 0          (sigma is constant-in-time but observable/estimable)
         """
 
         if return_state_names:
-            return ['S', 'E', 'I', 'R', 't']
+            return ['S', 'E', 'I', 'R', 't', 'sigma']
 
         # Extract state variables
-        S = x_vec[0]
-        E = x_vec[1]
-        I = x_vec[2]
-        R = x_vec[3]
-        t = x_vec[4]
-
-        # Use fixed sigma parameter
-        sigma = sigma_default
+        S     = x_vec[0]
+        E     = x_vec[1]
+        I     = x_vec[2]
+        R     = x_vec[3]
+        t     = x_vec[4]
+        sigma = x_vec[5]   # sigma now a state
 
         # Extract controls
         u1 = u_vec[0]     # prevention / social distancing
@@ -101,10 +106,11 @@ class F(object):
         dI_dt = sigma * E - (self.gamma + u3) * I - self.mu * I
         dR_dt = (self.gamma + u3) * I + u2 * S - self.mu * R
         
-        # Time derivative
-        dt_dt = 1.0
+        # Time derivative and sigma dynamics
+        dt_dt      = 1.0
+        dsigma_dt  = 0.0   # parameter-as-state: constant but to be estimated
 
-        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dt_dt])
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dt_dt, dsigma_dt])
 
 
 ############################################################################################
@@ -208,15 +214,16 @@ class H(object):
         if return_measurement_names:
             return ['E_measured', 'I_measured', 'new_inf', 'prog']
 
-        S  = x_vec[0]
-        E  = x_vec[1]
-        I  = x_vec[2]
-        t  = x_vec[4]
-        u1 = u_vec[0]
+        S     = x_vec[0]
+        E     = x_vec[1]
+        I     = x_vec[2]
+        t     = x_vec[4]
+        sigma = x_vec[5]
+        u1    = u_vec[0]
 
         beta_eff = self._compute_beta_eff(t, u1)
         new_inf = beta_eff * S * I / self.N
-        prog = sigma_default * E
+        prog = sigma * E   # use sigma state
 
         return np.array([E, I, new_inf, prog])
 
@@ -281,17 +288,18 @@ class H(object):
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
                     'new_inf', 'prog', 'recov']
 
-        S  = x_vec[0]
-        E  = x_vec[1]
-        I  = x_vec[2]
-        R  = x_vec[3]
-        t  = x_vec[4]
-        u1 = u_vec[0]
-        u3 = u_vec[2]
+        S     = x_vec[0]
+        E     = x_vec[1]
+        I     = x_vec[2]
+        R     = x_vec[3]
+        t     = x_vec[4]
+        sigma = x_vec[5]
+        u1    = u_vec[0]
+        u3    = u_vec[2]
 
         beta_eff = self._compute_beta_eff(t, u1)
         new_inf = beta_eff * S * I / self.N
-        prog = sigma_default * E
+        prog = sigma * E              # use sigma state
         recov = (self.gamma + u3) * I
 
         return np.array([S, E, I, R, new_inf, prog, recov])
@@ -332,8 +340,9 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         I0 = 0.05 * N
         R0 = N - S0 - E0 - I0
         t0 = 0.0
+        sigma0 = sigma_default  # initial sigma state
 
-        x0 = np.array([S0, E0, I0, R0, t0])
+        x0 = np.array([S0, E0, I0, R0, t0, sigma0])
 
     # State and input names
     state_names = f(None, None, return_state_names=True)
@@ -373,13 +382,18 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
         E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
 
+        # Optional: keep sigma close to its initial value (if you ever want to use it in cost)
+        sigma0 = x0[5]
+        sigma_set = sigma0 * np.ones_like(tsim)
+
         # tvp keys become X_set internally in pybounds
         setpoint = {
             'S': np.zeros_like(tsim),
             'E': E_set,
             'I': I_set,
             'R': np.zeros_like(tsim),
-            't': tsim  # Time state tracks simulation time
+            't': tsim,          # Time state tracks simulation time
+            'sigma': sigma_set  # not used in cost yet, but available
         }
 
     simulator.update_dict(setpoint, name='setpoint')
@@ -408,6 +422,10 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     # Bounds for time state
     simulator.mpc.bounds['lower', '_x', 't'] = 0.0
     simulator.mpc.bounds['upper', '_x', 't'] = tsim_length + 100.0
+
+    # Bounds for sigma state (reasonable epidemiological range)
+    simulator.mpc.bounds['lower', '_x', 'sigma'] = 0.0
+    simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0  # per day
 
     # Control bounds
     simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
