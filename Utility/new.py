@@ -180,7 +180,7 @@ class H(object):
     # -------------------------------------------------------------------------
     # 5. h_incidence_recovery: I, R, new_cases
     # -------------------------------------------------------------------------
-    def h_incidence_recovery(self, x_vec, u_vec, return_measurement_names=False):
+    def h_ir_new(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement: y = [I, R, new_cases]^T
         """
