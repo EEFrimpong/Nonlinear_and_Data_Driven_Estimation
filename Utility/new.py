@@ -56,11 +56,11 @@ class F(object):
             dR/dt          = (γ + u3) I + u2 S - μR
             d(beta_eff)/dt = beta0 * (-ε * 2π/T) sin(2π t/T) (1 - u1)
             dσ/dt          = 0
-            dt/dt          = 1
+           # dt/dt          = 1
         """
 
         if return_state_names:
-            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma', 't']
+            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma']
 
         # Extract state variables
         S        = x_vec[0]
@@ -69,7 +69,7 @@ class F(object):
         R        = x_vec[3]
         beta_eff = x_vec[4]
         sigma    = x_vec[5]
-        t        = x_vec[6] # cumulative infections (not directly used in RHS except to carry forward)
+        #t        = x_vec[6] # cumulative infections (not directly used in RHS except to carry forward)
 
         # Extract controls
         u1 = u_vec[0]     # prevention / social distancing
@@ -97,11 +97,11 @@ class F(object):
         dsigma_dt = 0.0
 
         # Time state
-        dt_dt = 1
+       # dt_dt = 1
 
 
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt,
-                         dbeta_dt, dsigma_dt, dt_dt])
+                         dbeta_dt, dsigma_dt])#, dt_dt
 
 
 ############################################################################################
@@ -432,8 +432,8 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['upper', '_x', 'beta_eff'] = 2.0
     simulator.mpc.bounds['lower', '_x', 'sigma'] = 1.0 / 30.0   # incubation up to 30 days
     simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0          # up to 1/day
-    simulator.mpc.bounds['lower', '_x', 't'] = 0.0
-    simulator.mpc.bounds['upper', '_x', 't'] = tsim_length + 10.0
+    #simulator.mpc.bounds['lower', '_x', 't'] = 0.0
+    #simulator.mpc.bounds['upper', '_x', 't'] = tsim_length + 10.0
 
     # Control bounds
     simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
