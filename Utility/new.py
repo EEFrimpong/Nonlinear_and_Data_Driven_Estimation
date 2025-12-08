@@ -37,12 +37,15 @@ class F(object):
         Continuous time dynamics function for SEIR model with control.
 
         States:
-            x = [S, E, I, R, beta_eff, sigma, t]
+            x = [S, E, I, R, beta_eff, t]
 
         Controls:
             u1 = u_vec[0]   social distancing (transmission reduction)
             u2 = u_vec[1]   vaccination (S -> R)
             u3 = u_vec[2]   treatment (extra recovery of I)
+
+        Parameters:
+            sigma = 1/10.2  (fixed progression rate from E to I)
 
         Seasonal transmission rate:
             beta_eff(t) = beta0 * sin(2π*t/T) * (1 - u1)
@@ -56,12 +59,11 @@ class F(object):
             dI/dt          = σ*E - (γ + u3)*I - μ*I
             dR/dt          = (γ + u3)*I + u2*S - μ*R
             d(beta_eff)/dt = beta0 * (2π/T) * cos(2πt/T) * (1-u1)
-            dσ/dt          = 0
             dt/dt          = 1
         """
 
         if return_state_names:
-            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma', 't']
+            return ['S', 'E', 'I', 'R', 'beta_eff', 't']
 
         # Extract state variables
         S        = x_vec[0]
@@ -69,8 +71,10 @@ class F(object):
         I        = x_vec[2]
         R        = x_vec[3]
         beta_eff = x_vec[4]
-        sigma    = x_vec[5]
-        t        = x_vec[6]
+        t        = x_vec[5]
+
+        # Use fixed sigma parameter
+        sigma = sigma_default
 
         # Extract controls
         u1 = u_vec[0]     # prevention / social distancing
@@ -89,14 +93,11 @@ class F(object):
         # Dynamics for beta_eff (derivative of beta0 * sin(2πt/T) * (1-u1))
         # d/dt[beta0 * sin(2πt/T) * (1-u1)] = beta0 * (2π/T) * cos(2πt/T) * (1-u1)
         dbeta_dt = self.beta0 * (2.0 * np.pi / self.T) * np.cos(2.0 * np.pi * t / self.T) * (1.0 - u1)
-
-        # Sigma treated as constant parameter-state
-        dsigma_dt = 0.0
         
         # Time derivative
         dt_dt = 1.0
 
-        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt, dsigma_dt, dt_dt])
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt, dt_dt])
 
 
 ############################################################################################
@@ -193,10 +194,9 @@ class H(object):
         E        = x_vec[1]
         I        = x_vec[2]
         beta_eff = x_vec[4]
-        sigma    = x_vec[5]
 
         new_inf = beta_eff * S * I / self.N
-        prog = sigma * E
+        prog = sigma_default * E
 
         return np.array([E, I, new_inf, prog])
 
@@ -262,11 +262,10 @@ class H(object):
         I        = x_vec[2]
         R        = x_vec[3]
         beta_eff = x_vec[4]
-        sigma    = x_vec[5]
         u3       = u_vec[2]
 
         new_inf = beta_eff * S * I / self.N
-        prog = sigma * E
+        prog = sigma_default * E
         recov = (self.gamma + u3) * I
 
         return np.array([S, E, I, R, new_inf, prog, recov])
@@ -309,9 +308,8 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         # Initial beta_eff consistent with seasonal formula at t=0
         # beta_eff(0) = beta0 * sin(0) * (1 - 0) = 0
         beta_eff0 = beta0_default * np.sin(0.0)
-        sigma0 = sigma_default
 
-        x0 = np.array([S0, E0, I0, R0, beta_eff0, sigma0, t0])
+        x0 = np.array([S0, E0, I0, R0, beta_eff0, t0])
 
     # State and input names
     state_names = f(None, None, return_state_names=True)
@@ -363,7 +361,6 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
             'I': I_set,
             'R': np.zeros_like(tsim),
             'beta_eff': beta_eff_expected,
-            'sigma': sigma_default * np.ones_like(tsim),
             't': tsim  # Time state tracks simulation time
         }
 
@@ -393,10 +390,6 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     # Bounds for beta_eff
     simulator.mpc.bounds['lower', '_x', 'beta_eff'] = 0.0
     simulator.mpc.bounds['upper', '_x', 'beta_eff'] = 2.0
-    
-    # Bounds for sigma
-    simulator.mpc.bounds['lower', '_x', 'sigma'] = 1.0 / 30.0   # incubation up to 30 days
-    simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0          # up to 1/day
     
     # Bounds for time state
     simulator.mpc.bounds['lower', '_x', 't'] = 0.0
