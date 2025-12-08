@@ -39,7 +39,7 @@ class F(object):
         Continuous time dynamics function for SEIR model with control.
 
         States:
-            x = [S, E, I, R, beta_eff, sigma, t, C]
+            x = [S, E, I, R, beta_eff, sigma, t]
 
         Controls:
             u1 = u_vec[0]   social distancing (transmission reduction)
@@ -56,12 +56,11 @@ class F(object):
             dR/dt          = (γ + u3) I + u2 S - μR
             d(beta_eff)/dt = beta0 * (-ε * 2π/T) sin(2π t/T) (1 - u1)
             dσ/dt          = 0
-            dt/dt          = 0
-            dC/dt          = lambda_inf
+            dt/dt          = 1
         """
 
         if return_state_names:
-            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma', 't', 'C']
+            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma', 't']
 
         # Extract state variables
         S        = x_vec[0]
@@ -70,8 +69,7 @@ class F(object):
         R        = x_vec[3]
         beta_eff = x_vec[4]
         sigma    = x_vec[5]
-        t        = x_vec[6]
-        C        = x_vec[7]  # cumulative infections (not directly used in RHS except to carry forward)
+        t        = x_vec[6] # cumulative infections (not directly used in RHS except to carry forward)
 
         # Extract controls
         u1 = u_vec[0]     # prevention / social distancing
@@ -99,13 +97,11 @@ class F(object):
         dsigma_dt = 0.0
 
         # Time state
-        dt_dt = 0.0
+        dt_dt = 1
 
-        # Cumulative infections
-        dC_dt = 0#lambda_inf
 
         return np.array([dS_dt, dE_dt, dI_dt, dR_dt,
-                         dbeta_dt, dsigma_dt, dt_dt, dC_dt])
+                         dbeta_dt, dsigma_dt, dt_dt])
 
 
 ############################################################################################
@@ -326,7 +322,6 @@ class H(object):
         I        = x_vec[2]
         R        = x_vec[3]
         beta_eff = x_vec[4]
-        C        = x_vec[7]
         u1       = u_vec[0]
 
         beta_eff = x_vec[4]
