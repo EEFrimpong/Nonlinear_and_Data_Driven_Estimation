@@ -13,10 +13,10 @@ sigma_default = 1.0 / 10.2  # Default progression rate from E to I (10.2 days in
 gamma = 1.0 / 10.0         # Recovery rate (10 days infectious period)
 N = 1_000_000              # Total population
 
-# PARAMETERS FOR BETA DYNAMICS (now a state, not seasonal parameter)
-beta0_default = 0.3        # baseline transmission rate
-beta_decay_rate = 0.001    # decay rate for beta
-beta_noise_std = 0.01      # noise/std for beta dynamics
+# PARAMETERS FOR BETA DYNAMICS (state variable)
+beta0_default = 0.3        # baseline transmission rate (target value)
+beta_decay_rate = 0.001    # decay rate for beta towards baseline
+beta_noise_std = 0.01      # noise/std for beta dynamics (if needed)
 
 ############################################################################################
 # Continuous time dynamics function
@@ -29,14 +29,15 @@ class F(object):
         self.gamma = gamma
         self.N = N
 
-        # Beta dynamics parameters
-        self.beta0 = beta0          # baseline value for initialization
+        # Beta dynamics parameters (NO SEASONAL PARAMETERS)
+        self.beta0 = beta0           # target/baseline value for beta
         self.beta_decay = beta_decay  # decay rate towards baseline
-        self.beta_noise = beta_noise  # noise/std for beta dynamics
+        self.beta_noise = beta_noise  # noise/std for beta dynamics (optional)
 
     def f(self, x_vec, u_vec, return_state_names=False):
         """
         Continuous time dynamics function for SEIR model with control AND beta as state.
+        NO SEASONAL COMPONENT IN BETA - it's a state with simple dynamics.
 
         States:
             x = [S, E, I, R, beta, t]
@@ -51,9 +52,9 @@ class F(object):
             sigma = 1/10.2  (fixed progression rate from E to I)
             gamma = 1/10.0  (fixed recovery rate)
 
-        Beta dynamics (simple mean-reverting process):
-            dbeta/dt = beta_decay * (beta0 - beta) + beta_noise * ξ
-            where ξ ~ N(0,1) (in discrete time, we'll handle noise separately if needed)
+        Beta dynamics (simple mean-reverting process - NO SEASONALITY):
+            dbeta/dt = beta_decay * (beta0 - beta) 
+            Can be extended with noise or other terms if needed
 
         Infection term (force of infection):
             lambda_inf = beta * (1 - u1) * S * I / N
@@ -63,7 +64,7 @@ class F(object):
             dE/dt = lambda_inf - σ*E - μ*E
             dI/dt = σ*E - (γ + u3)*I - μ*I
             dR/dt = (γ + u3)*I + u2*S - μ*R
-            dbeta/dt = beta_decay * (beta0 - beta)
+            dbeta/dt = beta_decay * (beta0 - beta) - u4 * beta * 0.1
             dt/dt = 1
         """
 
@@ -87,7 +88,7 @@ class F(object):
         u3 = u_vec[2]     # treatment
         u4 = u_vec[3]     # beta control (optional)
 
-        # Force of infection with time-varying beta
+        # Force of infection with time-varying beta (NO SEASONALITY)
         # beta is now a state variable, apply social distancing control
         lambda_inf = beta * (1.0 - u1) * S * I / self.N
 
@@ -97,9 +98,8 @@ class F(object):
         dI_dt = sigma * E - (self.gamma + u3) * I - self.mu * I
         dR_dt = (self.gamma + u3) * I + u2 * S - self.mu * R
         
-        # Beta dynamics - mean-reverting process
+        # Beta dynamics - mean-reverting process (NO SEASONALITY)
         # u4 could represent interventions that affect transmission rate directly
-        # For example: mask mandates, travel restrictions that affect beta
         dbeta_dt = self.beta_decay * (self.beta0 - beta) - u4 * beta * 0.1
         
         # Time derivative
@@ -461,10 +461,10 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     return t_sim, x_sim, u_sim, y_sim, simulator
 
 
-# Example usage with beta as state
+# Example usage with beta as state (no seasonality)
 def example_simulation():
     # Create dynamics and measurement objects
-    f_obj = F(beta0=0.3, beta_decay=0.001, beta_noise=0.01)
+    f_obj = F(beta0=0.3, beta_decay=0.001)
     h_obj = H('h_seir_beta')  # Measure all states including beta
     
     # Run simulation
@@ -496,10 +496,10 @@ def example_simulation():
     axes[0, 0].legend()
     axes[0, 0].grid(True)
     
-    # Plot beta (transmission rate)
+    # Plot beta (transmission rate) - NO SEASONAL PATTERN
     axes[0, 1].plot(t_sim, beta, label='β(t)', color='red')
     axes[0, 1].axhline(y=beta0_default, color='gray', linestyle='--', label='β₀ baseline')
-    axes[0, 1].set_title('Transmission Rate β(t)')
+    axes[0, 1].set_title('Transmission Rate β(t) - No Seasonality')
     axes[0, 1].set_xlabel('Time (days)')
     axes[0, 1].set_ylabel('β')
     axes[0, 1].legend()
@@ -534,7 +534,7 @@ def example_simulation():
     axes[2, 0].set_xlabel('Time (days)')
     axes[2, 0].set_ylabel('R₀')
     axes[2, 0].legend()
-    axes[2, 1].grid(True)
+    axes[2, 0].grid(True)
     
     # Plot total infected over time
     total_infected = E + I
@@ -550,6 +550,90 @@ def example_simulation():
     
     return t_sim, x_sim, u_sim, y_sim, simulator
 
+# Alternative beta dynamics: constant beta (no dynamics)
+class F_ConstantBeta(F):
+    """Version with constant beta (no dynamics)"""
+    def f(self, x_vec, u_vec, return_state_names=False):
+        if return_state_names:
+            return ['S', 'E', 'I', 'R', 'beta', 't']
+        
+        # Extract state variables
+        S = x_vec[0]
+        E = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        beta = x_vec[4]  # beta is constant (no dynamics)
+        t = x_vec[5]
+
+        sigma = sigma_default
+        u1, u2, u3, u4 = u_vec[0], u_vec[1], u_vec[2], u_vec[3]
+
+        # Force of infection
+        lambda_inf = beta * (1.0 - u1) * S * I / self.N
+
+        # SEIR equations
+        dS_dt = self.mu * self.N - lambda_inf - u2 * S - self.mu * S
+        dE_dt = lambda_inf - sigma * E - self.mu * E
+        dI_dt = sigma * E - (self.gamma + u3) * I - self.mu * I
+        dR_dt = (self.gamma + u3) * I + u2 * S - self.mu * R
+        
+        # Beta is constant (dbeta/dt = 0)
+        dbeta_dt = 0.0
+        
+        dt_dt = 1.0
+
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt, dt_dt])
+
+# Alternative beta dynamics: random walk
+class F_RandomWalkBeta(F):
+    """Version with random walk beta dynamics"""
+    def f(self, x_vec, u_vec, return_state_names=False):
+        if return_state_names:
+            return ['S', 'E', 'I', 'R', 'beta', 't']
+        
+        # Extract state variables
+        S = x_vec[0]
+        E = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        beta = x_vec[4]
+        t = x_vec[5]
+
+        sigma = sigma_default
+        u1, u2, u3, u4 = u_vec[0], u_vec[1], u_vec[2], u_vec[3]
+
+        # Force of infection
+        lambda_inf = beta * (1.0 - u1) * S * I / self.N
+
+        # SEIR equations
+        dS_dt = self.mu * self.N - lambda_inf - u2 * S - self.mu * S
+        dE_dt = lambda_inf - sigma * E - self.mu * E
+        dI_dt = sigma * E - (self.gamma + u3) * I - self.mu * I
+        dR_dt = (self.gamma + u3) * I + u2 * S - self.mu * R
+        
+        # Random walk dynamics for beta (mean-reverting with noise)
+        # In practice, noise would be added in discrete time
+        dbeta_dt = self.beta_decay * (self.beta0 - beta) - u4 * beta * 0.1
+        
+        dt_dt = 1.0
+
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt, dt_dt])
+
 # Run the example
 if __name__ == "__main__":
+    print("Running SEIR simulation with beta as a state variable (no seasonality)")
+    print("Beta dynamics: mean-reverting process")
+    print(f"Beta baseline: {beta0_default}")
+    print(f"Beta decay rate: {beta_decay_rate}")
+    
+    # Example 1: Mean-reverting beta
+    print("\nExample 1: Mean-reverting beta dynamics")
     example_simulation()
+    
+    # Example 2: Constant beta
+    print("\nExample 2: Constant beta (no dynamics)")
+    f_const = F_ConstantBeta(beta0=0.3, beta_decay=0.001)
+    h_obj = H('h_seir_beta')
+    
+    # You would need to adjust the simulate_seir function to use F_ConstantBeta
+    # or create a wrapper that handles different F classes
