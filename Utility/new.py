@@ -14,7 +14,7 @@ gamma = 1.0 / 10.0         # Recovery rate (10 days infectious period)
 N = 1_000_000              # Total population
 
 # PARAMETERS FOR SEASONAL BETA_EFF
-beta0_default = 0.5        # baseline transmission rate (adjusted higher since using sine)
+beta0_default = 0.5        # baseline transmission rate
 T_default = 365            # seasonal period (days)
 
 ############################################################################################
@@ -31,14 +31,13 @@ class F(object):
         # Seasonal beta parameters
         self.beta0 = beta0
         self.T = T
-        self.current_time = 0.0  # Track current simulation time
 
     def f(self, x_vec, u_vec, return_state_names=False):
         """
         Continuous time dynamics function for SEIR model with control.
 
         States:
-            x = [S, E, I, R, sigma]
+            x = [S, E, I, R, beta_eff, sigma, t]
 
         Controls:
             u1 = u_vec[0]   social distancing (transmission reduction)
@@ -49,40 +48,36 @@ class F(object):
             beta_eff(t) = beta0 * sin(2π*t/T) * (1 - u1)
 
         Infection term (force of infection):
-            lambda_inf = beta_eff(t) * S * I / N
+            lambda_inf = beta_eff * S * I / N
 
         ODEs:
-            dS/dt  = μN - lambda_inf - u2*S - μ*S
-            dE/dt  = lambda_inf - σ*E - μ*E
-            dI/dt  = σ*E - (γ + u3)*I - μ*I
-            dR/dt  = (γ + u3)*I + u2*S - μ*R
-            dσ/dt  = 0
+            dS/dt          = μN - lambda_inf - u2*S - μ*S
+            dE/dt          = lambda_inf - σ*E - μ*E
+            dI/dt          = σ*E - (γ + u3)*I - μ*I
+            dR/dt          = (γ + u3)*I + u2*S - μ*R
+            d(beta_eff)/dt = beta0 * (2π/T) * cos(2πt/T) * (1-u1)
+            dσ/dt          = 0
+            dt/dt          = 1
         """
 
         if return_state_names:
-            return ['S', 'E', 'I', 'R', 'sigma']
+            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma', 't']
 
         # Extract state variables
-        S     = x_vec[0]
-        E     = x_vec[1]
-        I     = x_vec[2]
-        R     = x_vec[3]
-        sigma = x_vec[4]
+        S        = x_vec[0]
+        E        = x_vec[1]
+        I        = x_vec[2]
+        R        = x_vec[3]
+        beta_eff = x_vec[4]
+        sigma    = x_vec[5]
+        t        = x_vec[6]
 
         # Extract controls
         u1 = u_vec[0]     # prevention / social distancing
         u2 = u_vec[1]     # vaccination
         u3 = u_vec[2]     # treatment
 
-        # Calculate seasonal transmission rate
-        # beta_eff = beta0 * sin(2π*t/T) * (1 - u1)
-        t = self.current_time
-        beta_eff = self.beta0 * np.sin(2.0 * np.pi * t / self.T) * (1.0 - u1)
-        
-        # Ensure beta_eff is non-negative (sin can be negative)
-        beta_eff = max(0.0, beta_eff)
-
-        # Force of infection
+        # Force of infection using beta_eff state
         lambda_inf = beta_eff * S * I / self.N
 
         # SEIR equations with controls
@@ -91,10 +86,17 @@ class F(object):
         dI_dt = sigma * E - (self.gamma + u3) * I - self.mu * I
         dR_dt = (self.gamma + u3) * I + u2 * S - self.mu * R
 
+        # Dynamics for beta_eff (derivative of beta0 * sin(2πt/T) * (1-u1))
+        # d/dt[beta0 * sin(2πt/T) * (1-u1)] = beta0 * (2π/T) * cos(2πt/T) * (1-u1)
+        dbeta_dt = self.beta0 * (2.0 * np.pi / self.T) * np.cos(2.0 * np.pi * t / self.T) * (1.0 - u1)
+
         # Sigma treated as constant parameter-state
         dsigma_dt = 0.0
+        
+        # Time derivative
+        dt_dt = 1.0
 
-        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dsigma_dt])
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt, dsigma_dt, dt_dt])
 
 
 ############################################################################################
@@ -112,17 +114,10 @@ class H(object):
         self.N = N
         self.beta0 = beta0
         self.T = T
-        self.current_time = 0.0
 
     def h(self, x_vec, u_vec, return_measurement_names=False):
         h_func = self.__getattribute__(self.measurement_option)
         return h_func(x_vec, u_vec, return_measurement_names=return_measurement_names)
-
-    def _compute_beta_eff(self, u1):
-        """Helper function to compute beta_eff at current time"""
-        t = self.current_time
-        beta_eff = self.beta0 * np.sin(2.0 * np.pi * t / self.T) * (1.0 - u1)
-        return max(0.0, beta_eff)
 
     # -------------------------------------------------------------------------
     # 1. h_i_only: I
@@ -163,11 +158,10 @@ class H(object):
         if return_measurement_names:
             return ['I_reported', 'new_cases']
 
-        S  = x_vec[0]
-        I  = x_vec[2]
-        u1 = u_vec[0]
+        S        = x_vec[0]
+        I        = x_vec[2]
+        beta_eff = x_vec[4]
 
-        beta_eff = self._compute_beta_eff(u1)
         new_cases = beta_eff * S * I / self.N
         return np.array([I, new_cases])
 
@@ -179,12 +173,11 @@ class H(object):
         if return_measurement_names:
             return ['I_measured', 'R_measured', 'new_cases']
 
-        S  = x_vec[0]
-        I  = x_vec[2]
-        R  = x_vec[3]
-        u1 = u_vec[0]
+        S        = x_vec[0]
+        I        = x_vec[2]
+        R        = x_vec[3]
+        beta_eff = x_vec[4]
 
-        beta_eff = self._compute_beta_eff(u1)
         new_cases = beta_eff * S * I / self.N
         return np.array([I, R, new_cases])
 
@@ -196,13 +189,12 @@ class H(object):
         if return_measurement_names:
             return ['E_measured', 'I_measured', 'new_inf', 'prog']
 
-        S     = x_vec[0]
-        E     = x_vec[1]
-        I     = x_vec[2]
-        sigma = x_vec[4]
-        u1    = u_vec[0]
+        S        = x_vec[0]
+        E        = x_vec[1]
+        I        = x_vec[2]
+        beta_eff = x_vec[4]
+        sigma    = x_vec[5]
 
-        beta_eff = self._compute_beta_eff(u1)
         new_inf = beta_eff * S * I / self.N
         prog = sigma * E
 
@@ -231,13 +223,12 @@ class H(object):
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured', 'new_inf']
 
-        S  = x_vec[0]
-        E  = x_vec[1]
-        I  = x_vec[2]
-        R  = x_vec[3]
-        u1 = u_vec[0]
+        S        = x_vec[0]
+        E        = x_vec[1]
+        I        = x_vec[2]
+        R        = x_vec[3]
+        beta_eff = x_vec[4]
 
-        beta_eff = self._compute_beta_eff(u1)
         new_inf = beta_eff * S * I / self.N
         return np.array([S, E, I, R, new_inf])
 
@@ -249,13 +240,12 @@ class H(object):
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured', 'beta_eff']
 
-        S  = x_vec[0]
-        E  = x_vec[1]
-        I  = x_vec[2]
-        R  = x_vec[3]
-        u1 = u_vec[0]
+        S        = x_vec[0]
+        E        = x_vec[1]
+        I        = x_vec[2]
+        R        = x_vec[3]
+        beta_eff = x_vec[4]
 
-        beta_eff = self._compute_beta_eff(u1)
         return np.array([S, E, I, R, beta_eff])
 
     # -------------------------------------------------------------------------
@@ -267,15 +257,14 @@ class H(object):
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
                     'new_inf', 'prog', 'recov']
 
-        S     = x_vec[0]
-        E     = x_vec[1]
-        I     = x_vec[2]
-        R     = x_vec[3]
-        sigma = x_vec[4]
-        u1    = u_vec[0]
-        u3    = u_vec[2]
+        S        = x_vec[0]
+        E        = x_vec[1]
+        I        = x_vec[2]
+        R        = x_vec[3]
+        beta_eff = x_vec[4]
+        sigma    = x_vec[5]
+        u3       = u_vec[2]
 
-        beta_eff = self._compute_beta_eff(u1)
         new_inf = beta_eff * S * I / self.N
         prog = sigma * E
         recov = (self.gamma + u3) * I
@@ -290,13 +279,12 @@ class H(object):
         if return_measurement_names:
             return ['I_measured', 'R_measured', 'new_cases', 'recov']
 
-        S  = x_vec[0]
-        I  = x_vec[2]
-        R  = x_vec[3]
-        u1 = u_vec[0]
-        u3 = u_vec[2]
+        S        = x_vec[0]
+        I        = x_vec[2]
+        R        = x_vec[3]
+        beta_eff = x_vec[4]
+        u3       = u_vec[2]
         
-        beta_eff = self._compute_beta_eff(u1)
         recov = (self.gamma + u3) * I
         new_cases = beta_eff * S * I / self.N
 
@@ -316,9 +304,14 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         E0 = 0.05 * N
         I0 = 0.05 * N
         R0 = N - S0 - E0 - I0
+        t0 = 0.0
+        
+        # Initial beta_eff consistent with seasonal formula at t=0
+        # beta_eff(0) = beta0 * sin(0) * (1 - 0) = 0
+        beta_eff0 = beta0_default * np.sin(0.0)
         sigma0 = sigma_default
 
-        x0 = np.array([S0, E0, I0, R0, sigma0])
+        x0 = np.array([S0, E0, I0, R0, beta_eff0, sigma0, t0])
 
     # State and input names
     state_names = f(None, None, return_state_names=True)
@@ -358,13 +351,20 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
         E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
 
+        # Expected beta_eff trajectory based on seasonal formula
+        beta_eff_expected = beta0_default * np.sin(2.0 * np.pi * tsim / T_default)
+        # Ensure non-negative
+        beta_eff_expected = np.maximum(0.0, beta_eff_expected)
+
         # tvp keys become X_set internally in pybounds
         setpoint = {
             'S': np.zeros_like(tsim),
             'E': E_set,
             'I': I_set,
             'R': np.zeros_like(tsim),
-            'sigma': sigma_default * np.ones_like(tsim)
+            'beta_eff': beta_eff_expected,
+            'sigma': sigma_default * np.ones_like(tsim),
+            't': tsim  # Time state tracks simulation time
         }
 
     simulator.update_dict(setpoint, name='setpoint')
@@ -390,9 +390,17 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['lower', '_x', 'R'] = eps
     simulator.mpc.bounds['upper', '_x', 'R'] = N
 
+    # Bounds for beta_eff
+    simulator.mpc.bounds['lower', '_x', 'beta_eff'] = 0.0
+    simulator.mpc.bounds['upper', '_x', 'beta_eff'] = 2.0
+    
     # Bounds for sigma
     simulator.mpc.bounds['lower', '_x', 'sigma'] = 1.0 / 30.0   # incubation up to 30 days
     simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0          # up to 1/day
+    
+    # Bounds for time state
+    simulator.mpc.bounds['lower', '_x', 't'] = 0.0
+    simulator.mpc.bounds['upper', '_x', 't'] = tsim_length + 100.0
 
     # Control bounds
     simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
@@ -402,61 +410,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['lower', '_u', 'u3'] = 0.0
     simulator.mpc.bounds['upper', '_u', 'u3'] = 0.5
 
-    # Run simulation with MPC and update time tracking
-    # We'll need to create a wrapper to update the time
-    class TimeTrackingSimulator:
-        def __init__(self, sim, f_obj, h_obj):
-            self.sim = sim
-            self.f_obj = f_obj
-            self.h_obj = h_obj
-        
-        def simulate(self, x0, u, mpc, return_full_output):
-            # Wrap the dynamics to update time
-            original_f = self.sim.model.f
-            
-            def f_with_time(x, u):
-                # Update time in both f and h objects
-                current_step = getattr(self.sim, '_current_step', 0)
-                self.f_obj.current_time = current_step * dt
-                self.h_obj.current_time = current_step * dt
-                return original_f(x, u)
-            
-            # Temporarily replace f
-            self.sim.model.f = f_with_time
-            
-            # Run simulation step by step to track time
-            t_sim = []
-            x_sim = []
-            u_sim = []
-            y_sim = []
-            
-            x_current = x0
-            for step in range(len(tsim)):
-                self.sim._current_step = step
-                self.f_obj.current_time = step * dt
-                self.h_obj.current_time = step * dt
-                
-                # Get control from MPC
-                u_current = self.sim.mpc.make_step(x_current)
-                
-                # Simulate one step
-                x_next = self.sim.simulator.make_step(u_current)
-                y_current = self.sim.model.h(x_current, u_current)
-                
-                t_sim.append(step * dt)
-                x_sim.append(x_current)
-                u_sim.append(u_current)
-                y_sim.append(y_current)
-                
-                x_current = x_next
-            
-            return (np.array(t_sim), np.array(x_sim), 
-                    np.array(u_sim), np.array(y_sim))
-    
-    tracking_sim = TimeTrackingSimulator(simulator, f, h)
-    
-    # For now, use standard simulation (time tracking needs more integration with pybounds)
-    # The time will be tracked internally via current_time attribute
+    # Run simulation with MPC
     t_sim, x_sim, u_sim, y_sim = simulator.simulate(
         x0=x0,
         u=None,
