@@ -351,9 +351,9 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         # initial beta_eff consistent with seasonal formula at t=0 and u1=0:
         beta_eff0 = beta0_default * (1.0 + epsilon_default * np.cos(0.0))
         sigma0    = sigma_default
-        C0        = 0.0  # start with zero cumulative infections
+        # start with zero cumulative infections
 
-        x0 = np.array([S0, E0, I0, R0, beta_eff0, sigma0, t0, C0])
+        x0 = np.array([S0, E0, I0, R0, beta_eff0, sigma0, t0])
 
     # State and input names
     state_names = f(None, None, return_state_names=True)
@@ -427,15 +427,13 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['lower', '_x', 'R'] = eps
     simulator.mpc.bounds['upper', '_x', 'R'] = N
 
-    # Bounds for beta_eff, sigma, t, and C
+    # Bounds for beta_eff, sigma and t
     simulator.mpc.bounds['lower', '_x', 'beta_eff'] = 0.1
     simulator.mpc.bounds['upper', '_x', 'beta_eff'] = 2.0
     simulator.mpc.bounds['lower', '_x', 'sigma'] = 1.0 / 30.0   # incubation up to 30 days
     simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0          # up to 1/day
     simulator.mpc.bounds['lower', '_x', 't'] = 0.0
     simulator.mpc.bounds['upper', '_x', 't'] = tsim_length + 10.0
-    simulator.mpc.bounds['lower', '_x', 'C'] = 0.0
-    simulator.mpc.bounds['upper', '_x', 'C'] = 2.0 * N  # generous upper bound
 
     # Control bounds
     simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
