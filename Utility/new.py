@@ -13,8 +13,9 @@ sigma_default = 1.0 / 10.2  # Default progression rate from E to I (10.2 days in
 gamma = 1.0 / 10.0         # Recovery rate (10 days infectious period)
 N = 1_000_000              # Total population
 
-# PARAMETERS FOR SEASONAL BETA_EFF
-beta0_default = 0.5        # baseline transmission rate
+# PARAMETERS FOR SEASONAL BETA (transmission rate)
+beta0_default = 0.3        # baseline transmission rate
+epsilon_default = 0.2      # seasonal amplitude
 T_default = 365            # seasonal period (days)
 
 ############################################################################################
@@ -22,7 +23,7 @@ T_default = 365            # seasonal period (days)
 ############################################################################################
 class F(object):
     def __init__(self, mu=mu, gamma=gamma, N=N,
-                 beta0=beta0_default, T=T_default):
+                 beta0=beta0_default, epsilon=epsilon_default, T=T_default):
         """Initialize with parameters stored as instance variables"""
         self.mu = mu
         self.gamma = gamma
@@ -30,6 +31,7 @@ class F(object):
 
         # Seasonal beta parameters
         self.beta0 = beta0
+        self.epsilon = epsilon
         self.T = T
 
     def f(self, x_vec, u_vec, return_state_names=False):
@@ -37,7 +39,7 @@ class F(object):
         Continuous time dynamics function for SEIR model with control.
 
         States:
-            x = [S, E, I, R, beta_eff, t]
+            x = [S, E, I, R, t]
 
         Controls:
             u1 = u_vec[0]   social distancing (transmission reduction)
@@ -46,32 +48,34 @@ class F(object):
 
         Parameters:
             sigma = 1/10.2  (fixed progression rate from E to I)
+            gamma = 1/10.0  (fixed recovery rate)
 
         Seasonal transmission rate:
-            beta_eff(t) = beta0 * sin(2π*t/T) * (1 - u1)
+            beta(t) = beta0 * (1 + epsilon * sin(2π*t/T))
+
+        Effective transmission with control:
+            beta_eff(t) = beta(t) * (1 - u1)
 
         Infection term (force of infection):
-            lambda_inf = beta_eff * S * I / N
+            lambda_inf = beta_eff(t) * S * I / N
 
         ODEs:
-            dS/dt          = μN - lambda_inf - u2*S - μ*S
-            dE/dt          = lambda_inf - σ*E - μ*E
-            dI/dt          = σ*E - (γ + u3)*I - μ*I
-            dR/dt          = (γ + u3)*I + u2*S - μ*R
-            d(beta_eff)/dt = beta0 * (2π/T) * cos(2πt/T) * (1-u1)
-            dt/dt          = 1
+            dS/dt = μN - lambda_inf - u2*S - μ*S
+            dE/dt = lambda_inf - σ*E - μ*E
+            dI/dt = σ*E - (γ + u3)*I - μ*I
+            dR/dt = (γ + u3)*I + u2*S - μ*R
+            dt/dt = 1
         """
 
         if return_state_names:
-            return ['S', 'E', 'I', 'R', 'beta_eff', 't']
+            return ['S', 'E', 'I', 'R', 't']
 
         # Extract state variables
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
-        t        = x_vec[5]
+        S = x_vec[0]
+        E = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        t = x_vec[4]
 
         # Use fixed sigma parameter
         sigma = sigma_default
@@ -81,7 +85,14 @@ class F(object):
         u2 = u_vec[1]     # vaccination
         u3 = u_vec[2]     # treatment
 
-        # Force of infection using beta_eff state
+        # Compute seasonal transmission rate
+        # beta(t) = beta0 * (1 + epsilon * sin(2π*t/T))
+        beta_t = self.beta0 * (1.0 + self.epsilon * np.sin(2.0 * np.pi * t / self.T))
+        
+        # Apply control to get effective transmission rate
+        beta_eff = beta_t * (1.0 - u1)
+
+        # Force of infection
         lambda_inf = beta_eff * S * I / self.N
 
         # SEIR equations with controls
@@ -89,15 +100,11 @@ class F(object):
         dE_dt = lambda_inf - sigma * E - self.mu * E
         dI_dt = sigma * E - (self.gamma + u3) * I - self.mu * I
         dR_dt = (self.gamma + u3) * I + u2 * S - self.mu * R
-
-        # Dynamics for beta_eff (derivative of beta0 * sin(2πt/T) * (1-u1))
-        # d/dt[beta0 * sin(2πt/T) * (1-u1)] = beta0 * (2π/T) * cos(2πt/T) * (1-u1)
-        dbeta_dt = self.beta0 * (2.0 * np.pi / self.T) * np.cos(2.0 * np.pi * t / self.T) * (1.0 - u1)
         
         # Time derivative
         dt_dt = 1.0
 
-        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt, dt_dt])
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dt_dt])
 
 
 ############################################################################################
@@ -105,7 +112,7 @@ class F(object):
 ############################################################################################
 class H(object):
     def __init__(self, measurement_option, mu=mu, gamma=gamma, N=N,
-                 beta0=beta0_default, T=T_default):
+                 beta0=beta0_default, epsilon=epsilon_default, T=T_default):
         """
         measurement_option: string naming which h_* function to use.
         """
@@ -114,11 +121,18 @@ class H(object):
         self.gamma = gamma
         self.N = N
         self.beta0 = beta0
+        self.epsilon = epsilon
         self.T = T
 
     def h(self, x_vec, u_vec, return_measurement_names=False):
         h_func = self.__getattribute__(self.measurement_option)
         return h_func(x_vec, u_vec, return_measurement_names=return_measurement_names)
+
+    def _compute_beta_eff(self, t, u1):
+        """Helper function to compute effective transmission rate at time t"""
+        beta_t = self.beta0 * (1.0 + self.epsilon * np.sin(2.0 * np.pi * t / self.T))
+        beta_eff = beta_t * (1.0 - u1)
+        return beta_eff
 
     # -------------------------------------------------------------------------
     # 1. h_i_only: I
@@ -159,10 +173,12 @@ class H(object):
         if return_measurement_names:
             return ['I_reported', 'new_cases']
 
-        S        = x_vec[0]
-        I        = x_vec[2]
-        beta_eff = x_vec[4]
+        S  = x_vec[0]
+        I  = x_vec[2]
+        t  = x_vec[4]
+        u1 = u_vec[0]
 
+        beta_eff = self._compute_beta_eff(t, u1)
         new_cases = beta_eff * S * I / self.N
         return np.array([I, new_cases])
 
@@ -174,11 +190,13 @@ class H(object):
         if return_measurement_names:
             return ['I_measured', 'R_measured', 'new_cases']
 
-        S        = x_vec[0]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
+        S  = x_vec[0]
+        I  = x_vec[2]
+        R  = x_vec[3]
+        t  = x_vec[4]
+        u1 = u_vec[0]
 
+        beta_eff = self._compute_beta_eff(t, u1)
         new_cases = beta_eff * S * I / self.N
         return np.array([I, R, new_cases])
 
@@ -190,11 +208,13 @@ class H(object):
         if return_measurement_names:
             return ['E_measured', 'I_measured', 'new_inf', 'prog']
 
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        beta_eff = x_vec[4]
+        S  = x_vec[0]
+        E  = x_vec[1]
+        I  = x_vec[2]
+        t  = x_vec[4]
+        u1 = u_vec[0]
 
+        beta_eff = self._compute_beta_eff(t, u1)
         new_inf = beta_eff * S * I / self.N
         prog = sigma_default * E
 
@@ -223,12 +243,14 @@ class H(object):
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured', 'new_inf']
 
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
+        S  = x_vec[0]
+        E  = x_vec[1]
+        I  = x_vec[2]
+        R  = x_vec[3]
+        t  = x_vec[4]
+        u1 = u_vec[0]
 
+        beta_eff = self._compute_beta_eff(t, u1)
         new_inf = beta_eff * S * I / self.N
         return np.array([S, E, I, R, new_inf])
 
@@ -240,12 +262,14 @@ class H(object):
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured', 'beta_eff']
 
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
+        S  = x_vec[0]
+        E  = x_vec[1]
+        I  = x_vec[2]
+        R  = x_vec[3]
+        t  = x_vec[4]
+        u1 = u_vec[0]
 
+        beta_eff = self._compute_beta_eff(t, u1)
         return np.array([S, E, I, R, beta_eff])
 
     # -------------------------------------------------------------------------
@@ -257,13 +281,15 @@ class H(object):
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
                     'new_inf', 'prog', 'recov']
 
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
-        u3       = u_vec[2]
+        S  = x_vec[0]
+        E  = x_vec[1]
+        I  = x_vec[2]
+        R  = x_vec[3]
+        t  = x_vec[4]
+        u1 = u_vec[0]
+        u3 = u_vec[2]
 
+        beta_eff = self._compute_beta_eff(t, u1)
         new_inf = beta_eff * S * I / self.N
         prog = sigma_default * E
         recov = (self.gamma + u3) * I
@@ -278,12 +304,14 @@ class H(object):
         if return_measurement_names:
             return ['I_measured', 'R_measured', 'new_cases', 'recov']
 
-        S        = x_vec[0]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
-        u3       = u_vec[2]
+        S  = x_vec[0]
+        I  = x_vec[2]
+        R  = x_vec[3]
+        t  = x_vec[4]
+        u1 = u_vec[0]
+        u3 = u_vec[2]
         
+        beta_eff = self._compute_beta_eff(t, u1)
         recov = (self.gamma + u3) * I
         new_cases = beta_eff * S * I / self.N
 
@@ -304,12 +332,8 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         I0 = 0.05 * N
         R0 = N - S0 - E0 - I0
         t0 = 0.0
-        
-        # Initial beta_eff consistent with seasonal formula at t=0
-        # beta_eff(0) = beta0 * sin(0) * (1 - 0) = 0
-        beta_eff0 = beta0_default * np.sin(0.0)
 
-        x0 = np.array([S0, E0, I0, R0, beta_eff0, t0])
+        x0 = np.array([S0, E0, I0, R0, t0])
 
     # State and input names
     state_names = f(None, None, return_state_names=True)
@@ -349,18 +373,12 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         I_set = I_target + (I_initial - I_target) * np.exp(-tsim / 100.0)
         E_set = E_target + (E_initial - E_target) * np.exp(-tsim / 80.0)
 
-        # Expected beta_eff trajectory based on seasonal formula
-        beta_eff_expected = beta0_default * np.sin(2.0 * np.pi * tsim / T_default)
-        # Ensure non-negative
-        beta_eff_expected = np.maximum(0.0, beta_eff_expected)
-
         # tvp keys become X_set internally in pybounds
         setpoint = {
             'S': np.zeros_like(tsim),
             'E': E_set,
             'I': I_set,
             'R': np.zeros_like(tsim),
-            'beta_eff': beta_eff_expected,
             't': tsim  # Time state tracks simulation time
         }
 
@@ -386,10 +404,6 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['upper', '_x', 'I'] = N
     simulator.mpc.bounds['lower', '_x', 'R'] = eps
     simulator.mpc.bounds['upper', '_x', 'R'] = N
-
-    # Bounds for beta_eff
-    simulator.mpc.bounds['lower', '_x', 'beta_eff'] = 0.0
-    simulator.mpc.bounds['upper', '_x', 'beta_eff'] = 2.0
     
     # Bounds for time state
     simulator.mpc.bounds['lower', '_x', 't'] = 0.0
