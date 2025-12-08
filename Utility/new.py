@@ -13,17 +13,16 @@ sigma_default = 1.0 / 10.2  # Default progression rate from E to I (10.2 days in
 gamma = 1.0 / 10.0         # Recovery rate (10 days infectious period)
 N = 1_000_000              # Total population
 
-# PARAMETERS FOR SEASONAL BETA_EFF (structure parameters)
-beta0_default = 0.02       # baseline transmission
-epsilon_default = 0.2     # seasonal amplitude
-T_default = 365          # seasonal period
+# PARAMETERS FOR SEASONAL BETA_EFF
+beta0_default = 0.5        # baseline transmission rate (adjusted higher since using sine)
+T_default = 365            # seasonal period (days)
 
 ############################################################################################
 # Continuous time dynamics function
 ############################################################################################
 class F(object):
     def __init__(self, mu=mu, gamma=gamma, N=N,
-                 beta0=beta0_default, epsilon=epsilon_default, T=T_default):
+                 beta0=beta0_default, T=T_default):
         """Initialize with parameters stored as instance variables"""
         self.mu = mu
         self.gamma = gamma
@@ -31,73 +30,79 @@ class F(object):
 
         # Seasonal beta parameters
         self.beta0 = beta0
-        self.epsilon = epsilon
         self.T = T
+        self.current_time = 0.0  # Track current simulation time
 
     def f(self, x_vec, u_vec, return_state_names=False):
         """
         Continuous time dynamics function for SEIR model with control.
 
         States:
-            x = [S, E, I, R, beta_eff, sigma]
+            x = [S, E, I, R, sigma]
 
         Controls:
             u1 = u_vec[0]   social distancing (transmission reduction)
             u2 = u_vec[1]   vaccination (S -> R)
             u3 = u_vec[2]   treatment (extra recovery of I)
 
+        Seasonal transmission rate:
+            beta_eff(t) = beta0 * sin(2π*t/T) * (1 - u1)
+
         Infection term (force of infection):
-            lambda_inf = beta_eff(t) * (1 - u1) * S I / N
+            lambda_inf = beta_eff(t) * S * I / N
 
         ODEs:
-            dS/dt          = μN - lambda_inf - u2 S - μS
-            dE/dt          = lambda_inf - σ E - μE
-            dI/dt          = σ E - (γ + u3) I - μI
-            dR/dt          = (γ + u3) I + u2 S - μR
-            d(beta_eff)/dt = 0  (now treated as a slowly varying parameter)
-            dσ/dt          = 0
+            dS/dt  = μN - lambda_inf - u2*S - μ*S
+            dE/dt  = lambda_inf - σ*E - μ*E
+            dI/dt  = σ*E - (γ + u3)*I - μ*I
+            dR/dt  = (γ + u3)*I + u2*S - μ*R
+            dσ/dt  = 0
         """
 
         if return_state_names:
-            return ['S', 'E', 'I', 'R', 'beta_eff', 'sigma']
+            return ['S', 'E', 'I', 'R', 'sigma']
 
         # Extract state variables
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
-        sigma    = x_vec[5]
+        S     = x_vec[0]
+        E     = x_vec[1]
+        I     = x_vec[2]
+        R     = x_vec[3]
+        sigma = x_vec[4]
 
         # Extract controls
         u1 = u_vec[0]     # prevention / social distancing
         u2 = u_vec[1]     # vaccination
         u3 = u_vec[2]     # treatment
 
-        # Force of infection using beta_eff and control u1
-        lambda_inf = beta_eff * (1.0 - u1) * S * I / self.N
+        # Calculate seasonal transmission rate
+        # beta_eff = beta0 * sin(2π*t/T) * (1 - u1)
+        t = self.current_time
+        beta_eff = self.beta0 * np.sin(2.0 * np.pi * t / self.T) * (1.0 - u1)
+        
+        # Ensure beta_eff is non-negative (sin can be negative)
+        beta_eff = max(0.0, beta_eff)
 
-        # SEIR equations with controls and sigma as a state
+        # Force of infection
+        lambda_inf = beta_eff * S * I / self.N
+
+        # SEIR equations with controls
         dS_dt = self.mu * self.N - lambda_inf - u2 * S - self.mu * S
         dE_dt = lambda_inf - sigma * E - self.mu * E
         dI_dt = sigma * E - (self.gamma + u3) * I - self.mu * I
         dR_dt = (self.gamma + u3) * I + u2 * S - self.mu * R
 
-        # Treat beta_eff as a slowly varying parameter (no time dependency without t)
-        # If you need seasonal variation, you'll need to pass time as a parameter
-        dbeta_dt = 0.0
-
-        # Sigma treated as slowly varying / constant parameter-state
+        # Sigma treated as constant parameter-state
         dsigma_dt = 0.0
 
-        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dbeta_dt, dsigma_dt])
+        return np.array([dS_dt, dE_dt, dI_dt, dR_dt, dsigma_dt])
 
 
 ############################################################################################
 # Continuous time measurement functions
 ############################################################################################
 class H(object):
-    def __init__(self, measurement_option, mu=mu, gamma=gamma, N=N):
+    def __init__(self, measurement_option, mu=mu, gamma=gamma, N=N,
+                 beta0=beta0_default, T=T_default):
         """
         measurement_option: string naming which h_* function to use.
         """
@@ -105,18 +110,25 @@ class H(object):
         self.mu = mu
         self.gamma = gamma
         self.N = N
+        self.beta0 = beta0
+        self.T = T
+        self.current_time = 0.0
 
     def h(self, x_vec, u_vec, return_measurement_names=False):
         h_func = self.__getattribute__(self.measurement_option)
         return h_func(x_vec, u_vec, return_measurement_names=return_measurement_names)
 
+    def _compute_beta_eff(self, u1):
+        """Helper function to compute beta_eff at current time"""
+        t = self.current_time
+        beta_eff = self.beta0 * np.sin(2.0 * np.pi * t / self.T) * (1.0 - u1)
+        return max(0.0, beta_eff)
+
     # -------------------------------------------------------------------------
     # 1. h_i_only: I
     # -------------------------------------------------------------------------
     def h_i_only(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [I]
-        """
+        """Measurement: y = [I]"""
         if return_measurement_names:
             return ['I_measured']
         I = x_vec[2]
@@ -126,9 +138,7 @@ class H(object):
     # 2. h_ir: I, R
     # -------------------------------------------------------------------------
     def h_ir(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [I, R]^T
-        """
+        """Measurement: y = [I, R]^T"""
         if return_measurement_names:
             return ['I_measured', 'R_measured']
         I = x_vec[2]
@@ -136,12 +146,10 @@ class H(object):
         return np.array([I, R])
 
     # -------------------------------------------------------------------------
-    # 3. h_reported_cases: I (interpretation: reported infectious)
+    # 3. h_reported_cases: I
     # -------------------------------------------------------------------------
     def h_reported_cases(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [I]
-        """
+        """Measurement: y = [I]"""
         if return_measurement_names:
             return ['I_reported']
         I = x_vec[2]
@@ -149,63 +157,54 @@ class H(object):
 
     # -------------------------------------------------------------------------
     # 4. h_incidence: I, new_cases
-    # new_cases = beta_eff (1 - u1) S I / N
     # -------------------------------------------------------------------------
     def h_incidence(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [I, new_cases]^T
-        """
+        """Measurement: y = [I, new_cases]^T"""
         if return_measurement_names:
             return ['I_reported', 'new_cases']
 
-        S        = x_vec[0]
-        I        = x_vec[2]
-        beta_eff = x_vec[4]
-        u1       = u_vec[0]
+        S  = x_vec[0]
+        I  = x_vec[2]
+        u1 = u_vec[0]
 
-        new_cases = beta_eff * (1.0 - u1) * S * I / self.N
+        beta_eff = self._compute_beta_eff(u1)
+        new_cases = beta_eff * S * I / self.N
         return np.array([I, new_cases])
 
     # -------------------------------------------------------------------------
-    # 5. h_incidence_recovery: I, R, new_cases
+    # 5. h_ir_new: I, R, new_cases
     # -------------------------------------------------------------------------
     def h_ir_new(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [I, R, new_cases]^T
-        """
+        """Measurement: y = [I, R, new_cases]^T"""
         if return_measurement_names:
             return ['I_measured', 'R_measured', 'new_cases']
 
-        S        = x_vec[0]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
-        u1       = u_vec[0]
+        S  = x_vec[0]
+        I  = x_vec[2]
+        R  = x_vec[3]
+        u1 = u_vec[0]
 
-        new_cases = beta_eff * (1.0 - u1) * S * I / self.N
+        beta_eff = self._compute_beta_eff(u1)
+        new_cases = beta_eff * S * I / self.N
         return np.array([I, R, new_cases])
 
     # -------------------------------------------------------------------------
     # 6. h_ei_flows: E, I, new_inf, prog
-    # new_inf = beta_eff (1 - u1) S I / N
-    # prog    = sigma E
     # -------------------------------------------------------------------------
     def h_ei_flows(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [E, I, new_inf, prog]^T
-        """
+        """Measurement: y = [E, I, new_inf, prog]^T"""
         if return_measurement_names:
             return ['E_measured', 'I_measured', 'new_inf', 'prog']
 
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        beta_eff = x_vec[4]
-        sigma    = x_vec[5]
-        u1       = u_vec[0]
+        S     = x_vec[0]
+        E     = x_vec[1]
+        I     = x_vec[2]
+        sigma = x_vec[4]
+        u1    = u_vec[0]
 
-        new_inf = beta_eff * (1.0 - u1) * S * I / self.N
-        prog    = sigma * E
+        beta_eff = self._compute_beta_eff(u1)
+        new_inf = beta_eff * S * I / self.N
+        prog = sigma * E
 
         return np.array([E, I, new_inf, prog])
 
@@ -213,9 +212,7 @@ class H(object):
     # 7. h_seir: S, E, I, R
     # -------------------------------------------------------------------------
     def h_seir(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [S, E, I, R]^T
-        """
+        """Measurement: y = [S, E, I, R]^T"""
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured']
 
@@ -230,70 +227,58 @@ class H(object):
     # 8. h_seir_flows: S, E, I, R, new_inf
     # -------------------------------------------------------------------------
     def h_seir_flows(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [S, E, I, R, new_inf]^T
-        """
+        """Measurement: y = [S, E, I, R, new_inf]^T"""
         if return_measurement_names:
-            return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
-                    'new_inf']
+            return ['S_measured', 'E_measured', 'I_measured', 'R_measured', 'new_inf']
 
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
-        u1       = u_vec[0]
+        S  = x_vec[0]
+        E  = x_vec[1]
+        I  = x_vec[2]
+        R  = x_vec[3]
+        u1 = u_vec[0]
 
-        new_inf = beta_eff * (1.0 - u1) * S * I / self.N
+        beta_eff = self._compute_beta_eff(u1)
+        new_inf = beta_eff * S * I / self.N
         return np.array([S, E, I, R, new_inf])
 
     # -------------------------------------------------------------------------
     # 9. h_seir_with_beta: S, E, I, R, beta_eff
     # -------------------------------------------------------------------------
     def h_seir_with_beta(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [S, E, I, R, beta_eff]^T
-        """
+        """Measurement: y = [S, E, I, R, beta_eff]^T"""
         if return_measurement_names:
-            return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
-                    'beta_eff']
+            return ['S_measured', 'E_measured', 'I_measured', 'R_measured', 'beta_eff']
 
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
+        S  = x_vec[0]
+        E  = x_vec[1]
+        I  = x_vec[2]
+        R  = x_vec[3]
+        u1 = u_vec[0]
 
+        beta_eff = self._compute_beta_eff(u1)
         return np.array([S, E, I, R, beta_eff])
 
     # -------------------------------------------------------------------------
     # 10. h_with_flows: S, E, I, R, new_inf, prog, recov
-    # new_inf = beta_eff (1 - u1) S I / N
-    # prog    = sigma E
-    # recov   = (gamma + u3) I
     # -------------------------------------------------------------------------
     def h_with_flows(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement:
-            y = [S, E, I, R, new_inf, prog, recov]^T
-        """
+        """Measurement: y = [S, E, I, R, new_inf, prog, recov]^T"""
         if return_measurement_names:
             return ['S_measured', 'E_measured', 'I_measured', 'R_measured',
                     'new_inf', 'prog', 'recov']
 
-        S        = x_vec[0]
-        E        = x_vec[1]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
-        sigma    = x_vec[5]
+        S     = x_vec[0]
+        E     = x_vec[1]
+        I     = x_vec[2]
+        R     = x_vec[3]
+        sigma = x_vec[4]
+        u1    = u_vec[0]
+        u3    = u_vec[2]
 
-        u1 = u_vec[0]
-        u3 = u_vec[2]
-
-        new_inf = beta_eff * (1.0 - u1) * S * I / self.N
-        prog    = sigma * E
-        recov   = (self.gamma + u3) * I
+        beta_eff = self._compute_beta_eff(u1)
+        new_inf = beta_eff * S * I / self.N
+        prog = sigma * E
+        recov = (self.gamma + u3) * I
 
         return np.array([S, E, I, R, new_inf, prog, recov])
 
@@ -301,21 +286,19 @@ class H(object):
     # 11. h_observable: I, R, new_cases, recov
     # -------------------------------------------------------------------------
     def h_observable(self, x_vec, u_vec, return_measurement_names=False):
-        """
-        Measurement: y = [I, R, new_cases, recov]^T
-        """
+        """Measurement: y = [I, R, new_cases, recov]^T"""
         if return_measurement_names:
             return ['I_measured', 'R_measured', 'new_cases', 'recov']
 
-        S        = x_vec[0]
-        I        = x_vec[2]
-        R        = x_vec[3]
-        beta_eff = x_vec[4]
-        u1       = u_vec[0]
-        u3       = u_vec[2]
+        S  = x_vec[0]
+        I  = x_vec[2]
+        R  = x_vec[3]
+        u1 = u_vec[0]
+        u3 = u_vec[2]
         
-        recov     = (self.gamma + u3) * I
-        new_cases = beta_eff * (1.0 - u1) * S * I / self.N
+        beta_eff = self._compute_beta_eff(u1)
+        recov = (self.gamma + u3) * I
+        new_cases = beta_eff * S * I / self.N
 
         return np.array([I, R, new_cases, recov])
 
@@ -333,12 +316,9 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
         E0 = 0.05 * N
         I0 = 0.05 * N
         R0 = N - S0 - E0 - I0
+        sigma0 = sigma_default
 
-        # initial beta_eff consistent with seasonal formula at t=0 and u1=0:
-        beta_eff0 = beta0_default * (1.0 + epsilon_default * np.cos(0.0))
-        sigma0    = sigma_default
-
-        x0 = np.array([S0, E0, I0, R0, beta_eff0, sigma0])
+        x0 = np.array([S0, E0, I0, R0, sigma0])
 
     # State and input names
     state_names = f(None, None, return_state_names=True)
@@ -384,7 +364,6 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
             'E': E_set,
             'I': I_set,
             'R': np.zeros_like(tsim),
-            'beta_eff': beta0_default * np.ones_like(tsim),
             'sigma': sigma_default * np.ones_like(tsim)
         }
 
@@ -411,9 +390,7 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['lower', '_x', 'R'] = eps
     simulator.mpc.bounds['upper', '_x', 'R'] = N
 
-    # Bounds for beta_eff and sigma
-    simulator.mpc.bounds['lower', '_x', 'beta_eff'] = 0.01
-    simulator.mpc.bounds['upper', '_x', 'beta_eff'] = 2.0
+    # Bounds for sigma
     simulator.mpc.bounds['lower', '_x', 'sigma'] = 1.0 / 30.0   # incubation up to 30 days
     simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0          # up to 1/day
 
@@ -425,7 +402,61 @@ def simulate_seir(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['lower', '_u', 'u3'] = 0.0
     simulator.mpc.bounds['upper', '_u', 'u3'] = 0.5
 
-    # Run simulation with MPC
+    # Run simulation with MPC and update time tracking
+    # We'll need to create a wrapper to update the time
+    class TimeTrackingSimulator:
+        def __init__(self, sim, f_obj, h_obj):
+            self.sim = sim
+            self.f_obj = f_obj
+            self.h_obj = h_obj
+        
+        def simulate(self, x0, u, mpc, return_full_output):
+            # Wrap the dynamics to update time
+            original_f = self.sim.model.f
+            
+            def f_with_time(x, u):
+                # Update time in both f and h objects
+                current_step = getattr(self.sim, '_current_step', 0)
+                self.f_obj.current_time = current_step * dt
+                self.h_obj.current_time = current_step * dt
+                return original_f(x, u)
+            
+            # Temporarily replace f
+            self.sim.model.f = f_with_time
+            
+            # Run simulation step by step to track time
+            t_sim = []
+            x_sim = []
+            u_sim = []
+            y_sim = []
+            
+            x_current = x0
+            for step in range(len(tsim)):
+                self.sim._current_step = step
+                self.f_obj.current_time = step * dt
+                self.h_obj.current_time = step * dt
+                
+                # Get control from MPC
+                u_current = self.sim.mpc.make_step(x_current)
+                
+                # Simulate one step
+                x_next = self.sim.simulator.make_step(u_current)
+                y_current = self.sim.model.h(x_current, u_current)
+                
+                t_sim.append(step * dt)
+                x_sim.append(x_current)
+                u_sim.append(u_current)
+                y_sim.append(y_current)
+                
+                x_current = x_next
+            
+            return (np.array(t_sim), np.array(x_sim), 
+                    np.array(u_sim), np.array(y_sim))
+    
+    tracking_sim = TimeTrackingSimulator(simulator, f, h)
+    
+    # For now, use standard simulation (time tracking needs more integration with pybounds)
+    # The time will be tracked internally via current_time attribute
     t_sim, x_sim, u_sim, y_sim = simulator.simulate(
         x0=x0,
         u=None,
