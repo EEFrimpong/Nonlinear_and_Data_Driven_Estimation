@@ -200,8 +200,11 @@ def simulate_seir(f, h, tsim_length=200, dt=1.0, measurement_names=None,
     # Initialize simulator
     simulator = pybounds.Simulator(f, h, dt=dt, state_names=state_names, 
                                    input_names=input_names, measurement_names=measurement_names, 
-                                   mpc_horizon=int(20/dt),
-                                   measurement_noise_stds=measurement_noise_stds)
+                                   mpc_horizon=int(20/dt))
+    
+    # Set measurement noise if provided
+    if measurement_noise_stds is not None:
+        simulator.measurement_noise_stds = measurement_noise_stds
 
     # Define the set-point(s) to follow
     tsim = np.arange(0, tsim_length, step=dt)
