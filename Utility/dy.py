@@ -277,9 +277,9 @@ def simulate_seir(f, h, tsim_length=200, dt=1.0, measurement_names=None,
 
     # Initial condition: small outbreak in mostly susceptible population
     x0 = {
-        'S': 1000.0,  # Susceptible
-        'E': 500.0,    # Exposed
-        'I': 50.0,     # Infected
+        'S': 10000.0,  # Susceptible
+        'E': 5000.0,    # Exposed
+        'I': 1000.0,     # Infected
         'R': 0.0      # Recovered
     }
 
