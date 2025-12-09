@@ -143,7 +143,7 @@ class H(object):
         y_vec = np.array([I])
         return y_vec
 
-    def h_ir(self, x_vec, u_vec, return_measurement_names=False):
+    def h_infected_recovered(self, x_vec, u_vec, return_measurement_names=False):
         """Measure infected and recovered (hospital data + testing)"""
         if return_measurement_names:
             return ['I', 'R']
@@ -152,6 +152,10 @@ class H(object):
         R = x_vec[3]
         y_vec = np.array([I, R])
         return y_vec
+
+    def h_positions(self, x_vec, u_vec, return_measurement_names=False):
+        """Measure infected and recovered (alias for h_infected_recovered)"""
+        return self.h_infected_recovered(x_vec, u_vec, return_measurement_names)
 
     def h_new_infections(self, x_vec, u_vec, return_measurement_names=False):
         """Measure rate of new infections: β(1-u1)SI"""
@@ -173,11 +177,14 @@ class H(object):
 # SEIR simulation
 ############################################################################################
 def simulate_seir(f, h, tsim_length=200, dt=1.0, measurement_names=None,
-                  control_strategy='suppress_outbreak', rterm=1e-2):
+                  control_strategy='suppress_outbreak', rterm=1e-2, 
+                  measurement_noise_stds=None, setpoint=None):
     """
     Simulate SEIR epidemic model with MPC control
     
     control_strategy: 'suppress_outbreak', 'flatten_curve', 'minimal_intervention'
+    measurement_noise_stds: dict of measurement noise standard deviations
+    setpoint: dict of custom setpoints (optional)
     """
     # Set state and input names
     state_names = f(None, None, return_state_names=True)
@@ -193,47 +200,56 @@ def simulate_seir(f, h, tsim_length=200, dt=1.0, measurement_names=None,
     # Initialize simulator
     simulator = pybounds.Simulator(f, h, dt=dt, state_names=state_names, 
                                    input_names=input_names, measurement_names=measurement_names, 
-                                   mpc_horizon=int(20/dt))
+                                   mpc_horizon=int(20/dt),
+                                   measurement_noise_stds=measurement_noise_stds)
 
     # Define the set-point(s) to follow
     tsim = np.arange(0, tsim_length, step=dt)
     NA = np.zeros_like(tsim)
 
-    if control_strategy == 'suppress_outbreak':
-        # Goal: minimize infected population
-        setpoint = {
-            'S': NA,
-            'E': NA,
-            'I': np.ones_like(tsim) * 1.0,  # Target: keep infections very low
-            'R': NA,
-        }
-        # Cost focuses on minimizing I
-        cost_I = (simulator.model.x['I'] - simulator.model.tvp['I_set']) ** 2
-        cost = 100 * cost_I  # High weight on infection control
-        
-    elif control_strategy == 'flatten_curve':
-        # Goal: moderate infected levels to avoid overwhelming healthcare
-        target_I = 50.0  # Target infection level
-        setpoint = {
-            'S': NA,
-            'E': NA,
-            'I': np.ones_like(tsim) * target_I,
-            'R': NA,
-        }
-        cost_I = (simulator.model.x['I'] - simulator.model.tvp['I_set']) ** 2
-        cost = cost_I
-        
-    elif control_strategy == 'minimal_intervention':
-        # Goal: let epidemic run with minimal control cost
-        setpoint = {
-            'S': NA,
-            'E': NA,
-            'I': NA,
-            'R': NA,
-        }
-        # Small cost on states, main cost on controls
-        cost_I = simulator.model.x['I'] ** 2
-        cost = 0.1 * cost_I
+    if setpoint is None:
+        if control_strategy == 'suppress_outbreak':
+            # Goal: minimize infected population
+            setpoint = {
+                'S': NA,
+                'E': NA,
+                'I': np.ones_like(tsim) * 1.0,  # Target: keep infections very low
+                'R': NA,
+            }
+            # Cost focuses on minimizing I
+            cost_I = (simulator.model.x['I'] - simulator.model.tvp['I_set']) ** 2
+            cost = 100 * cost_I  # High weight on infection control
+            
+        elif control_strategy == 'flatten_curve':
+            # Goal: moderate infected levels to avoid overwhelming healthcare
+            target_I = 50.0  # Target infection level
+            setpoint = {
+                'S': NA,
+                'E': NA,
+                'I': np.ones_like(tsim) * target_I,
+                'R': NA,
+            }
+            cost_I = (simulator.model.x['I'] - simulator.model.tvp['I_set']) ** 2
+            cost = cost_I
+            
+        elif control_strategy == 'minimal_intervention':
+            # Goal: let epidemic run with minimal control cost
+            setpoint = {
+                'S': NA,
+                'E': NA,
+                'I': NA,
+                'R': NA,
+            }
+            # Small cost on states, main cost on controls
+            cost_I = simulator.model.x['I'] ** 2
+            cost = 0.1 * cost_I
+    else:
+        # User provided custom setpoint
+        # Infer cost function from non-NA setpoint values
+        cost = 0
+        for state_name in ['S', 'E', 'I', 'R']:
+            if state_name in setpoint and not np.all(setpoint[state_name] == 0):
+                cost += (simulator.model.x[state_name] - simulator.model.tvp[state_name + '_set']) ** 2
 
     # Update the simulator set-point
     simulator.update_dict(setpoint, name='setpoint')
