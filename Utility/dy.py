@@ -143,7 +143,7 @@ class H(object):
         y_vec = np.array([I])
         return y_vec
 
-    def h_infected_recovered(self, x_vec, u_vec, return_measurement_names=False):
+    def h_ir(self, x_vec, u_vec, return_measurement_names=False):
         """Measure infected and recovered (hospital data + testing)"""
         if return_measurement_names:
             return ['I', 'R']
