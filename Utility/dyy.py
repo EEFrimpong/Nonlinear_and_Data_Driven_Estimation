@@ -179,7 +179,8 @@ class H(object):
 
         I = x_vec[2]
         R = x_vec[3]
-        return np.array(['I','R'])
+        ss = np.array([I,R])
+        return ss
 
     def h_newinf(self, x_vec, u_vec, return_measurement_names=False):
         """Measure rate of new infections: β(1-u1)SI"""
