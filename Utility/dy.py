@@ -15,8 +15,8 @@ import pybounds
 ############################################################################################
 F = 10.0      # recruitment/birth rate (individuals per time unit)
 beta = 0.0005  # transmission rate 
-mu = 0.01      # natural mortality rate
-c = 0.1        # progression rate from E to I
+mu = 0.02      # natural mortality rate
+c = 0.2        # progression rate from E to I
 r = 0.05       # recovery rate
 
 ############################################################################################
@@ -312,7 +312,7 @@ def package_data_as_pandas_dataframe(t_sim, x_sim, u_sim, y_sim):
 ############################################################################################
 if __name__ == "__main__":
     # Create dynamics and measurement functions
-    f = F(beta=0.0005, mu=0.01, c=0.1, r=0.05, F_rate=10.0)
+    f = F(beta=0.0005, mu=0.02, c=0.2, r=0.05, F_rate=10.0)
     h = H('h_infected_recovered')
     
     # Run simulation
