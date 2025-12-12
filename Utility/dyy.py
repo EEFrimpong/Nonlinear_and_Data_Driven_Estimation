@@ -185,17 +185,17 @@ class H(object):
     def h_newinf(self, x_vec, u_vec, return_measurement_names=False):
         """Measure rate of new infections: β(1-u1)SI"""
         if return_measurement_names:
-            return ['newinf', 'V']
+            return ['newinf', 'R', 'V']
 
         S = x_vec[0]
-        I = x_vec[2]
+        R = x_vec[3]
         V = x_vec[4]
         u1 = u_vec[0]
         
         beta = 0.0005  # transmission rate (should match model parameter)
         newinf = beta * (1 - u1) * S * I
         
-        y_vec = np.array([newinf, V])
+        y_vec = np.array([newinf, R, V])
         return y_vec
 
 
