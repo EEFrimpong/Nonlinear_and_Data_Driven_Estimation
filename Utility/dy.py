@@ -13,7 +13,7 @@ import pybounds
 ############################################################################################
 # Set some global parameters for SEIR model
 ############################################################################################
-F = 100.0      # recruitment/birth rate (individuals per time unit)
+F = 10.0      # recruitment/birth rate (individuals per time unit)
 beta = 0.0005  # transmission rate 
 mu = 0.01      # natural mortality rate
 c = 0.1        # progression rate from E to I
@@ -277,9 +277,9 @@ def simulate_seir(f, h, tsim_length=200, dt=1.0, measurement_names=None,
 
     # Initial condition: small outbreak in mostly susceptible population
     x0 = {
-        'S': 10000.0,  # Susceptible
-        'E': 5000.0,    # Exposed
-        'I': 1000.0,     # Infected
+        'S': 1000.0,  # Susceptible
+        'E': 500.0,    # Exposed
+        'I': 100.0,     # Infected
         'R': 0.0      # Recovered
     }
 
@@ -312,7 +312,7 @@ def package_data_as_pandas_dataframe(t_sim, x_sim, u_sim, y_sim):
 ############################################################################################
 if __name__ == "__main__":
     # Create dynamics and measurement functions
-    f = F(beta=0.0005, mu=0.01, c=0.1, r=0.05, F_rate=100.0)
+    f = F(beta=0.0005, mu=0.01, c=0.1, r=0.05, F_rate=10.0)
     h = H('h_infected_recovered')
     
     # Run simulation
