@@ -1,3 +1,4 @@
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -13,11 +14,11 @@ import pybounds
 ############################################################################################
 # Set some global parameters for SEIR-V model
 ############################################################################################
-F = 0.5       # recruitment/birth rate (individuals per day)
-beta = 0.00015  # transmission rate (calibrated for realistic spread)
-mu = 0.00004    # natural mortality rate (≈1.5% annual mortality)
-c = 0.2         # progression rate from E to I (5 day incubation period)
-r = 0.1         # recovery rate (10 day recovery period)
+F = 10.0      # recruitment/birth rate (individuals per time unit)
+beta = 0.0005  # transmission rate 
+mu = 0.02      # natural mortality rate
+c = 0.2        # progression rate from E to I
+r = 0.05       # recovery rate
 
 ############################################################################################
 # Continuous time dynamics function - SEIR-V model
