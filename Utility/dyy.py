@@ -13,11 +13,11 @@ import pybounds
 ############################################################################################
 # Set some global parameters for SEIR-V model
 ############################################################################################
-F = 10.0      # recruitment/birth rate (individuals per time unit)
-beta = 0.0005  # transmission rate 
-mu = 0.02      # natural mortality rate
-c = 0.2        # progression rate from E to I
-r = 0.05       # recovery rate
+F = 0.5       # recruitment/birth rate (individuals per day)
+beta = 0.00015  # transmission rate (calibrated for realistic spread)
+mu = 0.00004    # natural mortality rate (≈1.5% annual mortality)
+c = 0.2         # progression rate from E to I (5 day incubation period)
+r = 0.1         # recovery rate (10 day recovery period)
 
 ############################################################################################
 # Continuous time dynamics function - SEIR-V model
@@ -185,7 +185,7 @@ class H(object):
         V = x_vec[4]
         u1 = u_vec[0]
         
-        beta = 0.0005  # transmission rate (should match model parameter)
+        beta = 0.00015  # transmission rate (should match model parameter)
         new_infections = beta * (1 - u1) * S * I
         
         y_vec = np.array([new_infections, I, V])
@@ -235,7 +235,7 @@ def simulate_seir(f, h, tsim_length=200, dt=1.0, measurement_names=None,
             setpoint = {
                 'S': NA,
                 'E': NA,
-                'I': np.ones_like(tsim) * 1.0,  # Target: keep infections very low
+                'I': np.ones_like(tsim) * 10.0,  # Target: keep infections very low
                 'R': NA,
                 'V': NA,
             }
@@ -245,7 +245,7 @@ def simulate_seir(f, h, tsim_length=200, dt=1.0, measurement_names=None,
             
         elif control_strategy == 'flatten_curve':
             # Goal: moderate infected levels to avoid overwhelming healthcare
-            target_I = 50.0  # Target infection level
+            target_I = 500.0  # Target infection level (5% of population)
             setpoint = {
                 'S': NA,
                 'E': NA,
@@ -294,19 +294,19 @@ def simulate_seir(f, h, tsim_length=200, dt=1.0, measurement_names=None,
     
     # Control bounds
     simulator.mpc.bounds['lower', '_u', 'u1'] = 0.0
-    simulator.mpc.bounds['upper', '_u', 'u1'] = 1.0   # u1 is a proportion (0-1)
+    simulator.mpc.bounds['upper', '_u', 'u1'] = 0.95   # u1 is a proportion (max 95% reduction)
     simulator.mpc.bounds['lower', '_u', 'u2'] = 0.0
-    simulator.mpc.bounds['upper', '_u', 'u2'] = 0.5   # u2 is a rate (limit based on capacity)
+    simulator.mpc.bounds['upper', '_u', 'u2'] = 0.05   # u2: max 5% daily vaccination rate
     simulator.mpc.bounds['lower', '_u', 'u3'] = 0.0
-    simulator.mpc.bounds['upper', '_u', 'u3'] = 0.3   # u3 is a rate (limit based on treatment capacity)
+    simulator.mpc.bounds['upper', '_u', 'u3'] = 0.15   # u3: max 15% daily enhanced recovery rate
 
     # Initial condition: small outbreak in mostly susceptible population
     x0 = {
-        'S': 1000.0,  # Susceptible
-        'E': 500.0,   # Exposed
-        'I': 100.0,   # Infected
-        'R': 0.0,     # Recovered
-        'V': 0.0      # Vaccinated
+        'S': 9500.0,   # Susceptible (95% of initial population)
+        'E': 300.0,    # Exposed (3%)
+        'I': 150.0,    # Infected (1.5%)
+        'R': 50.0,     # Recovered (0.5%)
+        'V': 0.0       # Vaccinated (0% initially)
     }
 
     # Run simulation using MPC
@@ -338,16 +338,16 @@ def package_data_as_pandas_dataframe(t_sim, x_sim, u_sim, y_sim):
 ############################################################################################
 if __name__ == "__main__":
     # Create dynamics and measurement functions
-    f = F(beta=0.0005, mu=0.02, c=0.2, r=0.05, F_rate=10.0)
+    f = F(beta=0.00015, mu=0.00004, c=0.2, r=0.1, F_rate=0.5)
     h = H('h_infected_recovered')
     
     # Run simulation
     t_sim, x_sim, u_sim, y_sim, simulator = simulate_seir(
         f.f, h.h, 
-        tsim_length=300, 
+        tsim_length=365,  # Simulate for 1 year
         dt=1.0,
         control_strategy='suppress_outbreak',
-        rterm=1e-2
+        rterm=5e-3  # Lower penalty on controls for more aggressive intervention
     )
     
     # Package as DataFrame
