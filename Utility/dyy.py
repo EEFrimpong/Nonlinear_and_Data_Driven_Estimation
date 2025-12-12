@@ -187,6 +187,7 @@ class H(object):
         if return_measurement_names:
             return ['newinf', 'R', 'V']
 
+        I = x_vec[2]
         S = x_vec[0]
         R = x_vec[3]
         V = x_vec[4]
