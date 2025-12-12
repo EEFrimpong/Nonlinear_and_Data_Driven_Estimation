@@ -173,13 +173,18 @@ class H(object):
         return y_vec
 
     def h_positions(self, x_vec, u_vec, return_measurement_names=False):
-        """Measure infected, recovered, and vaccinated (alias)"""
-        return self.h_infected_recovered(x_vec, u_vec, return_measurement_names)
+        """Measure infected, recovered, and vaccinated"""
+        if return_measurement_names:
+            return ['I', 'R']
 
-    def h_new_infections(self, x_vec, u_vec, return_measurement_names=False):
+        I = x_vec[2]
+        R = x_vec[3]
+        return np.array(['I','R'])
+
+    def h_newinf(self, x_vec, u_vec, return_measurement_names=False):
         """Measure rate of new infections: β(1-u1)SI"""
         if return_measurement_names:
-            return ['new_infections', 'I', 'V']
+            return ['newinf', 'I', 'V']
 
         S = x_vec[0]
         I = x_vec[2]
@@ -187,9 +192,9 @@ class H(object):
         u1 = u_vec[0]
         
         beta = 0.0005  # transmission rate (should match model parameter)
-        new_infections = beta * (1 - u1) * S * I
+        newinf = beta * (1 - u1) * S * I
         
-        y_vec = np.array([new_infections, I, V])
+        y_vec = np.array([newinf, I, V])
         return y_vec
 
 
