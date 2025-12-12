@@ -90,6 +90,16 @@ class H(object):
         
         return np.array([x1])
 
+
+    def h_x2(self, x_vec, u_vec, return_measurement_names=False):
+        """Measure both positions"""
+        if return_measurement_names:
+            return ['x2']
+
+        x2 = x_vec[2]
+        
+        return np.array([x2])
+
     def h_positions(self, x_vec, u_vec, return_measurement_names=False):
         """Measure both positions"""
         if return_measurement_names:
@@ -117,15 +127,15 @@ class H(object):
         
         return x_vec
 
-    def h_relative_position(self, x_vec, u_vec, return_measurement_names=False):
+    def h_rp(self, x_vec, u_vec, return_measurement_names=False):
         """Measure absolute positions and relative displacement"""
         if return_measurement_names:
-            return ['x1', 'x2', 'x2_minus_x1']
+            return ['x_rp']
 
         x1 = x_vec[0]
         x2 = x_vec[2]
         
-        return np.array([x1, x2, x2 - x1])
+        return np.array([x2 - x1])
 
 
 ############################################################################################
