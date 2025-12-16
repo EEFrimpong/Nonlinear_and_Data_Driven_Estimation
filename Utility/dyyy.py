@@ -182,6 +182,13 @@ class H(object):
         """Measure infected, recovered, and vaccinated"""
         if return_measurement_names:
             return ['R', 'V']
+        I = x_vec[2]
+        R = x_vec[3]
+        V = x_vec[4]
+        y_vec = np.array([R, V])
+        return y_vec
+
+    
             
     def h_iv(self, x_vec, u_vec, return_measurement_names=False):
         """Measure infected, recovered, and vaccinated"""
