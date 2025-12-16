@@ -13,7 +13,7 @@ import pybounds
 ############################################################################################
 # Set some global parameters for SEIR-V model
 ############################################################################################
-F = 10.0      # recruitment/birth rate (individuals per time unit)
+F = 25.0      # recruitment/birth rate (individuals per time unit)
 beta = 0.0005  # transmission rate 
 mu = 0.02      # natural mortality rate
 c = 0.2        # progression rate from E to I
@@ -375,7 +375,7 @@ def package_data_as_pandas_dataframe(t_sim, x_sim, u_sim, y_sim):
 ############################################################################################
 if __name__ == "__main__":
     # Create dynamics and measurement functions
-    f = F(beta=0.0005, mu=0.02, c=0.2, r=0.05, F_rate=10.0, epsilon=0.7, omega=0.01)
+    f = F(beta=0.0005, mu=0.02, c=0.2, r=0.05, F_rate=25.0, epsilon=0.7, omega=0.01)
     h = H('h_infected_recovered')
     
     # Run simulation
