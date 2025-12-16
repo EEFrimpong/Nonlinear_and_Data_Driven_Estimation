@@ -164,18 +164,18 @@ class H(object):
         y_vec = np.array([I])
         return y_vec
 
-    def h_infected_recovered(self, x_vec, u_vec, return_measurement_names=False):
+    def h_rv(self, x_vec, u_vec, return_measurement_names=False):
         """Measure infected, recovered, and vaccinated"""
         if return_measurement_names:
-            return ['I', 'R', 'V']
+            return ['R', 'V']
 
         I = x_vec[2]
         R = x_vec[3]
         V = x_vec[4]
-        y_vec = np.array([I, R, V])
+        y_vec = np.array([R, V])
         return y_vec
 
-    def h_positions(self, x_vec, u_vec, return_measurement_names=False):
+    def h_ir(self, x_vec, u_vec, return_measurement_names=False):
         """Measure infected, recovered, and vaccinated"""
         if return_measurement_names:
             return ['I', 'R']
