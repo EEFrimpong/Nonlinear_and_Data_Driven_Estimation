@@ -19,12 +19,13 @@ mu = 0.02      # natural mortality rate
 c = 0.2        # progression rate from E to I
 r = 0.05       # recovery rate
 epsilon = 0.7  # vaccine effectiveness (0 = no protection, 1 = perfect protection)
+omega = 0.01   # rate of waning immunity (vaccinated -> susceptible)
 
 ############################################################################################
 # Continuous time dynamics function - SEIR-V model with vaccine effectiveness
 ############################################################################################
 class F(object):
-    def __init__(self, beta=beta, mu=mu, c=c, r=r, F_rate=F, epsilon=epsilon):
+    def __init__(self, beta=beta, mu=mu, c=c, r=r, F_rate=F, epsilon=epsilon, omega=omega):
         """
         Initialize SEIR-V model parameters
         
@@ -35,6 +36,7 @@ class F(object):
         r : recovery rate
         F_rate : recruitment/birth rate
         epsilon : vaccine effectiveness (0 to 1)
+        omega : rate of waning immunity (vaccinated returning to susceptible)
         """
         self.beta = beta
         self.mu = mu
@@ -42,17 +44,18 @@ class F(object):
         self.r = r
         self.F_rate = F_rate
         self.epsilon = epsilon
+        self.omega = omega
 
     def f(self, x_vec, u_vec, return_state_names=False):
         """
-        Continuous time dynamics function for SEIR-V epidemic model with vaccine effectiveness.
+        Continuous time dynamics function for SEIR-V epidemic model with vaccine effectiveness and waning immunity.
         
         State dynamics:
-        Ṡ = F - β(1-u₁)SI - u₂S - μS
+        Ṡ = F - β(1-u₁)SI - u₂S + ωV - μS
         Ė = β(1-u₁)[S + (1-ε)V]I - cE - μE
         İ = cE - (r+u₃)I - μI
         Ṙ = (r+u₃)I - μR
-        V̇ = u₂S - (1-ε)β(1-u₁)VI - μV
+        V̇ = u₂S - (1-ε)β(1-u₁)VI - ωV - μV
         
         This is written in control-affine form: ẋ = f₀(x) + f₁(x)u₁ + f₂(x)u₂ + f₃(x)u₃
         
@@ -87,11 +90,11 @@ class F(object):
         
         # f0 component: drift dynamics (no controls, i.e., u1=0, u2=0, u3=0)
         f0_contribution = np.array([
-            self.F_rate - self.beta * S * I - self.mu * S,     # Ṡ with u1=0, u2=0
+            self.F_rate - self.beta * S * I + self.omega * V - self.mu * S,  # Ṡ with u1=0, u2=0
             self.beta * (S + (1 - self.epsilon) * V) * I - self.c * E - self.mu * E,  # Ė with u1=0
             self.c * E - self.r * I - self.mu * I,             # İ with u3=0
             self.r * I - self.mu * R,                          # Ṙ with u3=0
-            -(1 - self.epsilon) * self.beta * V * I - self.mu * V  # V̇ with u1=0, u2=0
+            -(1 - self.epsilon) * self.beta * V * I - self.omega * V - self.mu * V  # V̇ with u1=0, u2=0
         ])
         
         # f1 component: multiplied by control u1 (prevention)
@@ -162,6 +165,17 @@ class H(object):
 
         I = x_vec[2]
         y_vec = np.array([I])
+        return y_vec
+
+    def h_infected_recovered(self, x_vec, u_vec, return_measurement_names=False):
+        """Measure infected, recovered, and vaccinated"""
+        if return_measurement_names:
+            return ['I', 'R', 'V']
+
+        I = x_vec[2]
+        R = x_vec[3]
+        V = x_vec[4]
+        y_vec = np.array([I, R, V])
         return y_vec
 
     def h_rv(self, x_vec, u_vec, return_measurement_names=False):
@@ -354,7 +368,7 @@ def package_data_as_pandas_dataframe(t_sim, x_sim, u_sim, y_sim):
 ############################################################################################
 if __name__ == "__main__":
     # Create dynamics and measurement functions
-    f = F(beta=0.0005, mu=0.02, c=0.2, r=0.05, F_rate=10.0, epsilon=0.7)
+    f = F(beta=0.0005, mu=0.02, c=0.2, r=0.05, F_rate=10.0, epsilon=0.7, omega=0.01)
     h = H('h_infected_recovered')
     
     # Run simulation
@@ -379,7 +393,7 @@ if __name__ == "__main__":
     axes[0].plot(t_sim, x_sim['R'], label='Recovered')
     axes[0].plot(t_sim, x_sim['V'], label='Vaccinated')
     axes[0].set_ylabel('Population')
-    axes[0].set_title('SEIR-V Model States (with Vaccine Effectiveness ε=0.7)')
+    axes[0].set_title('SEIR-V Model States (with Vaccine Effectiveness ε=0.7 and Waning ω=0.01)')
     axes[0].legend()
     axes[0].grid(True)
     
@@ -407,7 +421,7 @@ if __name__ == "__main__":
     axes[3].plot(t_sim, x_sim['V'], label='Vaccinated', linestyle='--')
     axes[3].set_xlabel('Time')
     axes[3].set_ylabel('Population')
-    axes[3].set_title('Protected Population (Note: Vaccinated have partial protection)')
+    axes[3].set_title('Protected Population (Note: Vaccination provides partial protection and wanes over time)')
     axes[3].legend()
     axes[3].grid(True)
     
@@ -418,3 +432,13 @@ if __name__ == "__main__":
           f"I={x_sim['I'][-1]:.1f}, R={x_sim['R'][-1]:.1f}, V={x_sim['V'][-1]:.1f}")
     print(f"\nVaccine effectiveness (ε): {f.epsilon}")
     print(f"This means vaccinated individuals are {f.epsilon*100:.0f}% protected from infection.")
+    print(f"\nWaning immunity rate (ω): {f.omega}")
+    print(f"Vaccinated individuals return to susceptible state at rate {f.omega} per time unit.")
+
+
+
+
+
+
+
+
