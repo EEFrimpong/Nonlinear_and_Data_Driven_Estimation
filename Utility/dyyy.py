@@ -217,7 +217,7 @@ class H(object):
         I = x_vec[2]
         R = x_vec[3]
         V = x_vec[4]
-        S = np.array([I, R, V])
+        s = np.array([I, R, V])
         return s
 
     def h_newinf(self, x_vec, u_vec, return_measurement_names=False):
