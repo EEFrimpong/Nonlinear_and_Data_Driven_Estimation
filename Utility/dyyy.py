@@ -210,6 +210,16 @@ class H(object):
         ss = np.array([I,R])
         return ss
 
+    def h_irv(self, x_vec, u_vec, return_measurement_names=False):
+        """Measure infected, recovered, and vaccinated"""
+        if return_measurement_names:
+            return ['I', 'R', 'V']
+        I = x_vec[2]
+        R = x_vec[3]
+        V = x_vec[4]
+        S = np.array([I, R, V])
+        return s
+
     def h_newinf(self, x_vec, u_vec, return_measurement_names=False):
         """Measure rate of new infections: β(1-u1)[S+(1-ε)V]I"""
         if return_measurement_names:
